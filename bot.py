@@ -182,11 +182,19 @@ def small_caps(text: str) -> str:
 
 
 def header_text(sekcja: str) -> discord.ui.TextDisplay:
-    """Nagłówek panelu jako tekst w formacie `code` - Discord renderuje to jako szarą 'pigułkę'
-    z czcionką monospace, dokładnie tak jak w oryginalnym stylu."""
+    """Duży, wytłuszczony nagłówek panelu (Markdown heading), tak jak w oryginalnym stylu."""
     nazwa = CONFIG.get("nazwa_sklepu", "Shop").upper()
-    etykieta = f"`💎 {nazwa} X {sekcja.upper()}`"
+    etykieta = f"## 💎 {nazwa} X {sekcja.upper()}"
     return discord.ui.TextDisplay(etykieta)
+
+
+def cytuj(tekst: str) -> str:
+    """Dodaje formatowanie cytatu (szara pionowa kreska obok każdej linijki) - dokładnie tak
+    jak w oryginalnym stylu. Puste linie zostają puste, żeby oddzielać osobne bloki/kreski."""
+    linie = []
+    for linia in tekst.split("\n"):
+        linie.append(f"> {linia}" if linia.strip() else "")
+    return "\n".join(linie)
 
 
 def render(template: str, **kwargs) -> str:
@@ -231,9 +239,10 @@ class PanelView(discord.ui.LayoutView):
         super().__init__(timeout=None)
         self.plik: Optional[discord.File] = None
 
+        opis_cytowany = cytuj(opis)
         dzieci: List[discord.ui.Item] = [header_text(sekcja)]
         dzieci.append(discord.ui.Separator())
-        dzieci.append(discord.ui.TextDisplay(opis))
+        dzieci.append(discord.ui.TextDisplay(opis_cytowany))
 
         if obrazek_typ:
             plik, url = image_file_and_url(obrazek_typ)
@@ -241,7 +250,7 @@ class PanelView(discord.ui.LayoutView):
                 self.plik = plik
                 if miniaturka:
                     # doczepiamy miniaturkę do bloku treści zamiast osobnej sekcji
-                    dzieci[-1] = discord.ui.Section(opis, accessory=discord.ui.Thumbnail(media=url))
+                    dzieci[-1] = discord.ui.Section(opis_cytowany, accessory=discord.ui.Thumbnail(media=url))
                 else:
                     dzieci.append(discord.ui.Separator())
                     dzieci.append(discord.ui.MediaGallery(discord.MediaGalleryItem(url)))
@@ -374,9 +383,9 @@ class RegulaminNawigacja(discord.ui.LayoutView):
         strona_dane = strony[strona]
 
         nazwa = CONFIG.get("nazwa_sklepu", "Shop").upper()
-        etykieta_naglowka = f"`💎 REGULAMIN {nazwa} - STRONA {strona + 1}/{len(strony)}`"
+        etykieta_naglowka = f"## 💎 REGULAMIN {nazwa} - STRONA {strona + 1}/{len(strony)}"
         naglowek = discord.ui.TextDisplay(etykieta_naglowka)
-        tresc = f"**{strona_dane['tytul']}**\n\n{strona_dane['tresc']}"
+        tresc = cytuj(f"**{strona_dane['tytul']}**\n\n{strona_dane['tresc']}")
 
         poprzednia = discord.ui.Button(label="← Poprzednia", style=discord.ButtonStyle.secondary,
                                         custom_id="shopbot:regulamin:prev", disabled=(strona <= 0))
@@ -1398,9 +1407,9 @@ class PomocPanel(discord.ui.LayoutView):
         dane = POMOC_KATEGORIE.get(kategoria, POMOC_KATEGORIE["ogolne"])
 
         nazwa = CONFIG.get("nazwa_sklepu", "Shop").upper()
-        naglowek = discord.ui.TextDisplay(f"`💎 {nazwa} X POMOC — {dane['etykieta'].upper()}`")
+        naglowek = discord.ui.TextDisplay(f"## 💎 {nazwa} X POMOC — {dane['etykieta'].upper()}")
 
-        dzieci = [naglowek, discord.ui.Separator(), discord.ui.TextDisplay(dane["tresc"]),
+        dzieci = [naglowek, discord.ui.Separator(), discord.ui.TextDisplay(cytuj(dane["tresc"])),
                   discord.ui.Separator(), discord.ui.ActionRow(PomocSelect(kategoria)),
                   discord.ui.Separator(spacing=discord.SeparatorSpacing.small),
                   discord.ui.TextDisplay(footer_line("Pomoc"))]
