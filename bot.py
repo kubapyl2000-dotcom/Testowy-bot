@@ -26,7 +26,7 @@ os.makedirs(IMAGES_DIR, exist_ok=True)
 
 DEFAULT_CONFIG = {
     "nazwa_sklepu": "MójShop",
-    "footer": "© {rok} MójShop",
+    "footer": "© {rok} {sklep}",
 
     "colors": {
         "akcent": "#5865F2",     # główny kolor większości paneli
@@ -63,11 +63,11 @@ DEFAULT_CONFIG = {
     # ---- Weryfikacja ----
     "weryfikacja_tytul": "💎 {sklep} × Weryfikacja",
     "weryfikacja_opis": (
-        "» Kliknij przycisk **poniżej**, aby się zweryfikować!\n"
-        "» Dzięki temu uzyskasz pełny dostęp do wszystkich kanałów serwera.\n\n"
-        "*Nie sprzedajemy Cię jako membersa / nie dodajemy Cię nigdzie. "
-        "Weryfikacja odbywa się w całości na Discordzie, bez żadnych zewnętrznych stron.*"
+        "» **Hej!** Naciśnij przycisk **poniżej**, żeby się zweryfikować! Dzięki temu uzyskasz pełny "
+        "dostęp **do wszystkich** kanałów serwera.\n\n"
+        "» pssst! Nie sprzedajemy cię jako membersa/**nie dodajemy** cię nigdzie!"
     ),
+    "weryfikacja_przycisk": "Kliknij, aby zweryfikować się na naszym serwerze!",
 
     # ---- Regulamin (wielostronicowy, jak w panelu na screenach) ----
     "regulamin_strony": [
@@ -107,12 +107,14 @@ DEFAULT_CONFIG = {
     # ---- Panel ticketów ----
     "ticket_tytul": "💎 {sklep} × Tickety",
     "ticket_opis": (
-        "» Chcesz zakupić produkt bądź potrzebujesz pomocy od administracji?\n"
+        "» Chcesz zakupić produkt bądź potrzebujesz pomocy od administracji? Bądź Twój produkt wygasł "
+        "i chcesz go wymienić? Lub coś innego?\n\n"
         "» Skorzystaj z menu **poniżej** i wybierz odpowiednią kategorię, a my zajmiemy się resztą!"
     ),
     "ticket_kategorie": {
         "kupic": {"etykieta": "🛒 Chcę zakupić produkt", "opis": "Kliknij, aby zakupić produkt!"},
         "partnerstwo": {"etykieta": "🤝 Chcę nawiązać partnerstwo", "opis": "Kliknij, jeśli chcesz nawiązać partnerstwo!"},
+        "middleman": {"etykieta": "🎥 Middleman", "opis": "Kliknij, jeśli potrzebujesz mm do transakcji!"},
         "pomoc": {"etykieta": "ℹ️ Potrzebuję pomocy", "opis": "Kliknij, jeśli masz pytanie lub problem!"},
         "reklamacja": {"etykieta": "⚙️ Chcę złożyć reklamację", "opis": "Kliknij, aby złożyć reklamację!"},
     },
@@ -133,7 +135,9 @@ DEFAULT_CONFIG = {
     "partnerstwo_dane": {},          # user_id(str) -> {"liczba": int, "zarobek": float}
     "zostan_realizatorem_tytul": "💎 {sklep} × Zostań Realizatorem",
     "zostan_realizatorem_opis": (
-        "» Chcesz zarobić w pełni legalną i szybką kasę? Wystarczy realizować partnerstwa na naszym serwerze!\n\n"
+        "» Chcesz **zarobić** w pełni **legalną** i szybką kaskę? Wystarczy **realizować partnerstwa** "
+        "na naszym serwerze!\n\n"
+        "» Kliknij w przycisk **poniżej**, aby zostać realizatorem partnerstw!\n\n"
         "Stawka za jedno partnerstwo: **{stawka} {waluta}**."
     ),
 
@@ -144,7 +148,8 @@ DEFAULT_CONFIG = {
     "opinie_tytul": "💎 {sklep} × Wystaw Opinię",
     "opinie_opis": (
         "» Wystawiając nam opinię dajesz innym znać, co Cię u nas zadowoliło.\n"
-        "» Będziemy super wdzięczni za każdą wystawioną opinię - to buduje zaufanie do naszego sklepu."
+        "» Będziemy super wdzięczni za każdą wystawioną opinię - to buduje zaufanie do naszego sklepu.\n"
+        "» Opinię możesz napisać klikając w przycisk **poniżej**."
     ),
 }
 
@@ -179,6 +184,23 @@ class SafeDict(dict):
         return "{" + key + "}"
 
 
+_SMALL_CAPS = str.maketrans(
+    "abcdefghijklmnopqrstuvwxyz",
+    "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘqʀꜱᴛᴜᴠᴡxʏᴢ",
+)
+
+
+def small_caps(text: str) -> str:
+    """Zamienia tekst na wersję 'small caps' - taki sam efekt wizualny nagłówków
+    (pigułek) jak na oryginalnych screenach. Duże litery i znaki specjalne zostają bez zmian."""
+    return text.lower().translate(_SMALL_CAPS)
+
+
+def pill_title(sekcja: str) -> str:
+    """Buduje nagłówek w stylu 💎 ' NAZWA™ × SEKCJA (jak w oryginalnym panelu)."""
+    return f"💎 ᐧ {small_caps(CONFIG.get('nazwa_sklepu', 'Shop'))} × {small_caps(sekcja)}"
+
+
 def render(template: str, **kwargs) -> str:
     base = {"sklep": CONFIG.get("nazwa_sklepu", "Shop"), "rok": datetime.datetime.now().year}
     base.update(kwargs)
@@ -211,7 +233,7 @@ def base_embed(typ: str = "akcent", **kwargs) -> discord.Embed:
 def set_footer(embed: discord.Embed, guild: Optional[discord.Guild], extra: str = ""):
     tekst = render(CONFIG["footer"])
     if extra:
-        tekst = f"{tekst} • {extra}"
+        tekst = f"{tekst} × {extra}"
     embed.set_footer(text=tekst, icon_url=footer_icon(guild))
 
 
@@ -284,8 +306,8 @@ class WeryfikacjaView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Kliknij, aby się zweryfikować!", style=discord.ButtonStyle.success,
-                        emoji="✅", custom_id="shopbot:weryfikacja")
+    @discord.ui.button(label="Kliknij, aby zweryfikować się na naszym serwerze!",
+                        style=discord.ButtonStyle.success, emoji="✅", custom_id="shopbot:weryfikacja")
     async def weryfikuj(self, interaction: discord.Interaction, button: discord.ui.Button):
         rola_id = CONFIG["roles"].get("zweryfikowany")
         rola = interaction.guild.get_role(rola_id) if rola_id else None
@@ -306,10 +328,10 @@ class WeryfikacjaView(discord.ui.View):
 
 
 async def wyslij_panel_weryfikacji(kanal: discord.TextChannel):
-    embed = base_embed("akcent", title=render(CONFIG["weryfikacja_tytul"]),
+    embed = base_embed("akcent", title=pill_title("Weryfikacja"),
                         description=render(CONFIG["weryfikacja_opis"]))
     plik = prepare_embed_image(embed, "weryfikacja")
-    set_footer(embed, kanal.guild)
+    set_footer(embed, kanal.guild, "Weryfikacja")
     await send_or_edit_panel(kanal, embed, WeryfikacjaView(), "weryfikacja", plik)
 
 
@@ -331,10 +353,12 @@ class RegulaminView(discord.ui.View):
     def build_embed(self, guild: Optional[discord.Guild]) -> discord.Embed:
         strony = CONFIG["regulamin_strony"]
         strona_dane = strony[self.strona]
+        naglowek = pill_title("Regulamin")
+        slowo_strona = small_caps("strona")
         embed = base_embed("akcent",
-                            title=f"💎 Regulamin {render('{sklep}')} — strona {self.strona + 1}/{len(strony)}",
+                            title=f"{naglowek} — {slowo_strona} {self.strona + 1}/{len(strony)}",
                             description=f"**{strona_dane['tytul']}**\n\n{strona_dane['tresc']}")
-        set_footer(embed, guild)
+        set_footer(embed, guild, "Regulamin")
         return embed
 
     @discord.ui.button(label="← Poprzednia", style=discord.ButtonStyle.secondary, custom_id="shopbot:regulamin:prev")
@@ -454,7 +478,7 @@ class TicketKategoriaSelect(discord.ui.Select):
                             description=render(CONFIG["ticket_wiadomosc_tresc"],
                                                 mention=interaction.user.mention,
                                                 rola=staff_rola.mention if staff_rola else "administracją"))
-        set_footer(embed, guild)
+        set_footer(embed, guild, "Tickety")
         await kanal.send(content=f"{interaction.user.mention}" + (f" {staff_rola.mention}" if staff_rola else ""),
                           embed=embed, view=ZamknijTicketView())
 
@@ -468,7 +492,7 @@ class TicketPanelView(discord.ui.View):
 
 
 async def wyslij_panel_ticketow(kanal: discord.TextChannel):
-    embed = base_embed("akcent", title=render(CONFIG["ticket_tytul"]), description=render(CONFIG["ticket_opis"]))
+    embed = base_embed("akcent", title=pill_title("Tickety"), description=render(CONFIG["ticket_opis"]))
     plik = prepare_embed_image(embed, "ticket_panel")
     set_footer(embed, kanal.guild)
     await send_or_edit_panel(kanal, embed, TicketPanelView(), "ticket_panel", plik)
@@ -507,7 +531,7 @@ class OpiniaModal(discord.ui.Modal, title="Wystaw opinię"):
         embed.add_field(name="🛒 Jakość produktu", value=gwiazdki(str(self.produkt)))
         embed.add_field(name="🏛️ Czas realizacji", value=gwiazdki(str(self.czas)))
         embed.add_field(name="⏱️ Przebieg transakcji", value=gwiazdki(str(self.przebieg)))
-        set_footer(embed, interaction.guild)
+        set_footer(embed, interaction.guild, "Opinie")
         wiadomosc = await kanal.send(embed=embed)
         try:
             await wiadomosc.add_reaction("❤️")
@@ -527,9 +551,9 @@ class WystawOpinieView(discord.ui.View):
 
 
 async def wyslij_panel_opinii(kanal: discord.TextChannel):
-    embed = base_embed("akcent", title=render(CONFIG["opinie_tytul"]), description=render(CONFIG["opinie_opis"]))
+    embed = base_embed("akcent", title=pill_title("Wystaw Opinię"), description=render(CONFIG["opinie_opis"]))
     plik = prepare_embed_image(embed, "opinie")
-    set_footer(embed, kanal.guild)
+    set_footer(embed, kanal.guild, "Blacklista")
     await send_or_edit_panel(kanal, embed, WystawOpinieView(), "opinie", plik)
 
 
@@ -555,11 +579,11 @@ async def blacklista_dodaj(interaction: discord.Interaction, nick: str, powod: s
     }
     save_config()
 
-    embed = base_embed("blad", title=f"💎 {render('{sklep}')} × Blacklista")
+    embed = base_embed("blad", title=pill_title("Blacklista"))
     embed.add_field(name="Użytkownik", value=nick, inline=False)
     embed.add_field(name="Powód", value=powod, inline=False)
     embed.add_field(name="Dodane przez", value=interaction.user.mention, inline=False)
-    set_footer(embed, interaction.guild)
+    set_footer(embed, interaction.guild, "Blacklista")
 
     kanal_id = CONFIG["channels"].get("blacklista")
     kanal = interaction.guild.get_channel(kanal_id) if kanal_id else interaction.channel
@@ -652,12 +676,12 @@ class ZostanRealizatoremView(discord.ui.View):
 
 
 async def wyslij_panel_realizatora(kanal: discord.TextChannel):
-    embed = base_embed("akcent", title=render(CONFIG["zostan_realizatorem_tytul"]),
+    embed = base_embed("akcent", title=pill_title("Zostań Realizatorem"),
                         description=render(CONFIG["zostan_realizatorem_opis"],
                                             stawka=CONFIG["partnerstwo_stawka"],
                                             waluta=CONFIG["partnerstwo_waluta"]))
     plik = prepare_embed_image(embed, "partnerstwo")
-    set_footer(embed, kanal.guild)
+    set_footer(embed, kanal.guild, "Partnerstwo")
     await send_or_edit_panel(kanal, embed, ZostanRealizatoremView(), "realizator", plik)
 
 
@@ -681,7 +705,7 @@ async def partnerstwo_zglos(interaction: discord.Interaction, partner: str):
     embed.add_field(name="Kto został partnerem", value=partner, inline=False)
     embed.add_field(name="Nawiązał łącznie partnerstw", value=str(wpis["liczba"]))
     embed.add_field(name="Łącznie zarobił", value=f"{wpis['zarobek']} {CONFIG['partnerstwo_waluta']}")
-    set_footer(embed, interaction.guild)
+    set_footer(embed, interaction.guild, "Partnerstwo")
 
     kanal_id = CONFIG["channels"].get("partnerstwa")
     kanal = interaction.guild.get_channel(kanal_id) if kanal_id else interaction.channel
@@ -728,7 +752,7 @@ async def partnerstwo_stawka_cmd(interaction: discord.Interaction, kwota: float)
     embed = base_embed("akcent", title="💎 Zmieniono Stawkę")
     embed.add_field(name="Nowa stawka", value=f"{kwota} {CONFIG['partnerstwo_waluta']}")
     embed.add_field(name="Zmieniona przez", value=interaction.user.mention)
-    set_footer(embed, interaction.guild)
+    set_footer(embed, interaction.guild, "Zostań Realizatorem")
     kanal_id = CONFIG["channels"].get("partnerstwa")
     kanal = interaction.guild.get_channel(kanal_id) if kanal_id else interaction.channel
     await kanal.send(embed=embed)
@@ -747,11 +771,11 @@ async def on_member_join(member: discord.Member):
     kanal = member.guild.get_channel(kanal_id)
     if not kanal:
         return
-    embed = base_embed("akcent", title=render(CONFIG["nowa_osoba_tytul"]),
+    embed = base_embed("akcent", title=pill_title("Nowa Osoba"),
                         description=render(CONFIG["nowa_osoba_tresc"], mention=member.mention,
                                             ilosc=str(member.guild.member_count)))
     plik = prepare_embed_image(embed, "nowa_osoba", thumb=True)
-    set_footer(embed, member.guild)
+    set_footer(embed, member.guild, "Nowa Osoba")
     await kanal.send(embed=embed, file=plik)
 
 
