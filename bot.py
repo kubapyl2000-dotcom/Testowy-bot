@@ -174,10 +174,10 @@ def small_caps(text: str) -> str:
 
 
 def header_button(sekcja: str) -> discord.ui.ActionRow:
-    """Nagłówek panelu jako nieaktywny przycisk-plakietka (jaśniejsze tło, inny krój niż treść) -
-    dokładnie taki wizualny efekt jak 'pigułka' nagłówka w oryginalnym stylu."""
-    nazwa = small_caps(CONFIG.get("nazwa_sklepu", "Shop"))
-    etykieta = f"{nazwa} × {small_caps(sekcja)}"
+    """Nagłówek panelu jako nieaktywny przycisk-plakietka (jaśniejsze tło niż reszta karty) -
+    zwykłe WIELKIE LITERY, tak jak w oryginalnym stylu (bez 'small caps')."""
+    nazwa = CONFIG.get("nazwa_sklepu", "Shop").upper()
+    etykieta = f"{nazwa} X {sekcja.upper()}"
     przycisk = discord.ui.Button(label=etykieta, emoji="💎", style=discord.ButtonStyle.secondary, disabled=True)
     return discord.ui.ActionRow(przycisk)
 
@@ -203,8 +203,7 @@ def get_color(typ: str = "akcent") -> discord.Color:
 
 
 def footer_line(sekcja: str) -> str:
-    tekst = render(CONFIG["footer"])
-    return f"-# © {datetime.datetime.now().year} {render('{sklep}')} × {sekcja}"
+    return f"-# © {datetime.datetime.now().year} {render('{sklep}')} x {sekcja}"
 
 
 def image_file_and_url(typ: str) -> Tuple[Optional[discord.File], Optional[str]]:
@@ -367,8 +366,8 @@ class RegulaminNawigacja(discord.ui.LayoutView):
         strony = CONFIG["regulamin_strony"]
         strona_dane = strony[strona]
 
-        etykieta_naglowka = f"{small_caps(CONFIG.get('nazwa_sklepu', 'Shop'))} × {small_caps('regulamin')}" \
-                            f" — {small_caps('strona')} {strona + 1}/{len(strony)}"
+        nazwa = CONFIG.get("nazwa_sklepu", "Shop").upper()
+        etykieta_naglowka = f"REGULAMIN {nazwa} - STRONA {strona + 1}/{len(strony)}"
         naglowek_przycisk = discord.ui.Button(label=etykieta_naglowka, emoji="💎",
                                                style=discord.ButtonStyle.secondary, disabled=True)
         naglowek_row = discord.ui.ActionRow(naglowek_przycisk)
