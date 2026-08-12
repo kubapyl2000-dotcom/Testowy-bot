@@ -1,10 +1,12 @@
 import os
 import json
+import random
+import re
 import datetime
 from typing import Optional, List, Tuple
 
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
 
 # ========================
@@ -41,6 +43,7 @@ DEFAULT_CONFIG = {
         "partnerstwo": "",
         "statystyki": "",
         "nowa_osoba": "",
+        "konkurs": "",
     },
 
     "channels": {
@@ -50,6 +53,7 @@ DEFAULT_CONFIG = {
         "partnerstwa": 0,
         "blacklista": 0,
         "nowa_osoba": 0,
+        "konkursy": 0,
     },
     "roles": {
         "staff": 0,
@@ -122,6 +126,10 @@ DEFAULT_CONFIG = {
 
     # ---- Blacklista ----
     "blacklista_dane": {},
+
+    # ---- Konkursy (giveaway'e) ----
+    "konkursy": {},          # id -> dane konkursu
+    "konkurs_licznik": 0,    # licznik do generowania kolejnych ID konkursów
 
     # ---- Opinie ----
     "opinie_opis": (
@@ -638,6 +646,312 @@ async def blacklista_lista(interaction: discord.Interaction):
 
 
 # ========================
+#   KONKURSY (GIVEAWAY'E)
+# ========================
+
+DLUGOSC_JEDNOSTKI = {"d": "days", "h": "hours", "m": "minutes", "s": "seconds"}
+WZORZEC_CZASU = re.compile(r"(\d+)\s*(d|h|m|s)", re.IGNORECASE)
+
+
+def parsuj_czas(tekst: str) -> Optional[datetime.timedelta]:
+    """Parsuje czas trwania konkursu, np. '1d12h', '30m', '2h30m' -> timedelta."""
+    dopasowania = WZORZEC_CZASU.findall(tekst.strip())
+    if not dopasowania:
+        return None
+    wartosci = {"days": 0, "hours": 0, "minutes": 0, "seconds": 0}
+    for liczba, jednostka in dopasowania:
+        wartosci[DLUGOSC_JEDNOSTKI[jednostka.lower()]] += int(liczba)
+    delta = datetime.timedelta(**wartosci)
+    return delta if delta.total_seconds() > 0 else None
+
+
+def nowy_id_konkursu() -> str:
+    CONFIG["konkurs_licznik"] = CONFIG.get("konkurs_licznik", 0) + 1
+    save_config()
+    return str(CONFIG["konkurs_licznik"])
+
+
+def konkurs_wpis(konkurs_id: str) -> Optional[dict]:
+    return CONFIG["konkursy"].get(konkurs_id)
+
+
+def forma_osob(ilosc: int) -> str:
+    if ilosc == 1:
+        return "osoba"
+    if 2 <= ilosc % 10 <= 4 and not (12 <= ilosc % 100 <= 14):
+        return "osoby"
+    return "osób"
+
+
+class DolaczKonkursButton(discord.ui.Button):
+    def __init__(self, konkurs_id: str, disabled: bool = False):
+        super().__init__(label="Kliknij, aby dołączyć do konkursu!", style=discord.ButtonStyle.success,
+                          emoji="🎉", custom_id=f"shopbot:konkurs:dolacz:{konkurs_id}", disabled=disabled)
+        self.konkurs_id = konkurs_id
+
+    async def callback(self, interaction: discord.Interaction):
+        wpis = konkurs_wpis(self.konkurs_id)
+        if not wpis or wpis.get("zakonczony"):
+            await interaction.response.send_message("⚠️ Ten konkurs już się zakończył.", ephemeral=True)
+            return
+
+        rola_id = wpis.get("wymagana_rola")
+        if rola_id:
+            rola = interaction.guild.get_role(rola_id)
+            if rola and rola not in interaction.user.roles:
+                await interaction.response.send_message(
+                    f"⚠️ Aby dołączyć do tego konkursu, musisz posiadać rolę {rola.mention}.", ephemeral=True)
+                return
+
+        uczestnicy = wpis.setdefault("uczestnicy", [])
+        if interaction.user.id in uczestnicy:
+            uczestnicy.remove(interaction.user.id)
+            save_config()
+            await interaction.response.send_message("↩️ Zrezygnowałeś/aś z udziału w konkursie.", ephemeral=True)
+        else:
+            uczestnicy.append(interaction.user.id)
+            save_config()
+            await interaction.response.send_message("🎉 Dołączono do konkursu! Powodzenia!", ephemeral=True)
+
+        try:
+            kanal = interaction.guild.get_channel(wpis["kanal_id"])
+            wiadomosc = await kanal.fetch_message(wpis["message_id"])
+            await wiadomosc.edit(view=build_konkurs_panel(self.konkurs_id))
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
+            pass
+
+
+class UczestnicyKonkursButton(discord.ui.Button):
+    """Nieklikalny przycisk-licznik pokazujący liczbę uczestników (tak jak w oryginalnym stylu)."""
+
+    def __init__(self, konkurs_id: str, ilosc: int):
+        super().__init__(label=f"W konkursie wzięło udział {ilosc} {forma_osob(ilosc)}!",
+                          style=discord.ButtonStyle.secondary, emoji="👥",
+                          custom_id=f"shopbot:konkurs:licznik:{konkurs_id}", disabled=True)
+
+
+def build_konkurs_panel(konkurs_id: str) -> PanelView:
+    wpis = konkurs_wpis(konkurs_id)
+    ilosc_uczestnikow = len(wpis.get("uczestnicy", []))
+    koniec_ts = int(wpis["koniec"])
+    zakonczony = wpis.get("zakonczony", False)
+
+    linie = [
+        f"🎁 **Nagrodą w konkursie jest:** `{wpis['nagroda']}`",
+        f"👤 **Nagrodę może wygrać:** `{wpis['ilosc_zwyciezcow']} {forma_osob(wpis['ilosc_zwyciezcow'])}`",
+    ]
+    if zakonczony:
+        linie.append(f"🏛️ **Zakończono:** <t:{koniec_ts}:R> (<t:{koniec_ts}:F>)")
+    else:
+        linie.append(f"🏛️ **Koniec:** <t:{koniec_ts}:R> (<t:{koniec_ts}:F>)")
+    if wpis.get("wymagania"):
+        linie.append(f"» **Wymagania:** `{wpis['wymagania']}`")
+    if wpis.get("wymagana_rola"):
+        linie.append(f"🔒 **Wymagana rola:** <@&{wpis['wymagana_rola']}>")
+    linie.append(f"🧑‍🎤 **Organizator:** <@{wpis['host_id']}>")
+
+    if zakonczony:
+        zwyciezcy = wpis.get("zwyciezcy", [])
+        if zwyciezcy:
+            wzmianki = ", ".join(f"<@{uid}>" for uid in zwyciezcy)
+            linie.append(f"\n🏆 **Zwycięzca(y):** {wzmianki}")
+        else:
+            linie.append("\n🏆 **Zwycięzcy:** Brak (za mało uczestników).")
+
+    opis = "\n".join(linie)
+
+    dolacz = DolaczKonkursButton(konkurs_id, disabled=zakonczony)
+    licznik = UczestnicyKonkursButton(konkurs_id, ilosc_uczestnikow)
+
+    return PanelView("Konkurs", opis, "sukces" if not zakonczony else "akcent",
+                      items=[dolacz, licznik], obrazek_typ="konkurs")
+
+
+async def wylosuj_zwyciezcow(wpis: dict) -> List[int]:
+    uczestnicy = list(wpis.get("uczestnicy", []))
+    ile = min(wpis.get("ilosc_zwyciezcow", 1), len(uczestnicy))
+    if ile <= 0:
+        return []
+    return random.sample(uczestnicy, ile)
+
+
+async def zakoncz_konkurs(bot_instance: commands.Bot, konkurs_id: str, reroll: bool = False):
+    """Kończy konkurs (lub losuje ponownie) — edytuje wiadomość i ogłasza zwycięzców na kanale."""
+    wpis = konkurs_wpis(konkurs_id)
+    if not wpis:
+        return None
+
+    zwyciezcy = await wylosuj_zwyciezcow(wpis)
+    wpis["zwyciezcy"] = zwyciezcy
+    wpis["zakonczony"] = True
+    save_config()
+
+    kanal = bot_instance.get_channel(wpis["kanal_id"])
+    if kanal:
+        try:
+            wiadomosc = await kanal.fetch_message(wpis["message_id"])
+            await wiadomosc.edit(view=build_konkurs_panel(konkurs_id))
+        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+            pass
+
+        if zwyciezcy:
+            wzmianki = ", ".join(f"<@{uid}>" for uid in zwyciezcy)
+            naglowek = "🔄 Wylosowano ponownie" if reroll else "🎊 Konkurs zakończony"
+            tresc = (f"» **{naglowek}!** Gratulacje {wzmianki} — wygrywasz(cie) **{wpis['nagroda']}**!\n"
+                      f"» Skontaktuj się z organizatorem <@{wpis['host_id']}>, aby odebrać nagrodę.")
+            await send_dynamic_card(kanal, "Konkurs — Wyniki", tresc, "sukces")
+        else:
+            await send_dynamic_card(kanal, "Konkurs — Wyniki",
+                                     f"» Konkurs na **{wpis['nagroda']}** zakończył się bez zwycięzców "
+                                     f"— za mało uczestników.", "blad")
+    return zwyciezcy
+
+
+@tasks.loop(seconds=30)
+async def sprawdzaj_konkursy():
+    teraz = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    for konkurs_id, wpis in list(CONFIG["konkursy"].items()):
+        if not wpis.get("zakonczony") and wpis.get("koniec", 0) <= teraz:
+            await zakoncz_konkurs(bot, konkurs_id)
+
+
+konkurs_group = app_commands.Group(name="konkurs", description="Zarządzanie konkursami (giveaway'ami)")
+
+
+@konkurs_group.command(name="stworz", description="Tworzy nowy konkurs")
+@app_commands.describe(
+    nagroda="Co można wygrać, np. Nitro Boost",
+    zwyciezcy="Ile osób wygra konkurs",
+    czas="Czas trwania, np. 1d, 12h, 30m, 1d12h",
+    kanal="Kanał, na który wysłać konkurs (domyślnie ustawiony w /konfiguracja kanal)",
+    wymagania="Opcjonalny opis wymagań (informacyjny), np. 'zaproś 1 osobę'",
+    wymagana_rola="Opcjonalna rola wymagana, aby dołączyć",
+)
+async def konkurs_stworz(interaction: discord.Interaction, nagroda: str, zwyciezcy: int, czas: str,
+                          kanal: Optional[discord.TextChannel] = None, wymagania: Optional[str] = None,
+                          wymagana_rola: Optional[discord.Role] = None):
+    if not is_staff(interaction):
+        await interaction.response.send_message("⚠️ Nie masz uprawnień do tej komendy.", ephemeral=True)
+        return
+    if zwyciezcy < 1:
+        await interaction.response.send_message("⚠️ Liczba zwycięzców musi wynosić co najmniej 1.", ephemeral=True)
+        return
+
+    delta = parsuj_czas(czas)
+    if not delta:
+        await interaction.response.send_message(
+            "⚠️ Zły format czasu. Użyj np. `1d`, `12h`, `30m`, `1d12h30m`.", ephemeral=True)
+        return
+
+    docelowy_kanal = kanal
+    if docelowy_kanal is None:
+        kanal_id = CONFIG["channels"].get("konkursy")
+        docelowy_kanal = interaction.guild.get_channel(kanal_id) if kanal_id else interaction.channel
+    if docelowy_kanal is None:
+        await interaction.response.send_message("⚠️ Nie udało się ustalić kanału konkursu.", ephemeral=True)
+        return
+
+    koniec = datetime.datetime.now(datetime.timezone.utc) + delta
+    konkurs_id = nowy_id_konkursu()
+
+    CONFIG["konkursy"][konkurs_id] = {
+        "nagroda": nagroda,
+        "ilosc_zwyciezcow": zwyciezcy,
+        "koniec": koniec.timestamp(),
+        "wymagania": wymagania or "",
+        "wymagana_rola": wymagana_rola.id if wymagana_rola else 0,
+        "host_id": interaction.user.id,
+        "kanal_id": docelowy_kanal.id,
+        "message_id": 0,
+        "uczestnicy": [],
+        "zakonczony": False,
+        "zwyciezcy": [],
+    }
+    save_config()
+
+    view = build_konkurs_panel(konkurs_id)
+    if view.plik:
+        wiadomosc = await docelowy_kanal.send(view=view, file=view.plik)
+    else:
+        wiadomosc = await docelowy_kanal.send(view=view)
+
+    CONFIG["konkursy"][konkurs_id]["message_id"] = wiadomosc.id
+    save_config()
+    bot.add_view(build_konkurs_panel(konkurs_id), message_id=wiadomosc.id)
+
+    await interaction.response.send_message(
+        f"✅ Utworzono konkurs **#{konkurs_id}** na {docelowy_kanal.mention}.", ephemeral=True)
+
+
+@konkurs_group.command(name="zakoncz", description="Kończy konkurs przed czasem i losuje zwycięzców")
+@app_commands.describe(id="ID konkursu (widoczne w /konkurs lista)")
+async def konkurs_zakoncz(interaction: discord.Interaction, id: str):
+    if not is_staff(interaction):
+        await interaction.response.send_message("⚠️ Nie masz uprawnień do tej komendy.", ephemeral=True)
+        return
+    wpis = konkurs_wpis(id)
+    if not wpis:
+        await interaction.response.send_message("⚠️ Nie znaleziono konkursu o takim ID.", ephemeral=True)
+        return
+    if wpis.get("zakonczony"):
+        await interaction.response.send_message("⚠️ Ten konkurs już się zakończył.", ephemeral=True)
+        return
+    await interaction.response.send_message(f"✅ Kończenie konkursu **#{id}**...", ephemeral=True)
+    await zakoncz_konkurs(bot, id)
+
+
+@konkurs_group.command(name="reroll", description="Losuje nowych zwycięzców zakończonego konkursu")
+@app_commands.describe(id="ID konkursu (widoczne w /konkurs lista)")
+async def konkurs_reroll(interaction: discord.Interaction, id: str):
+    if not is_staff(interaction):
+        await interaction.response.send_message("⚠️ Nie masz uprawnień do tej komendy.", ephemeral=True)
+        return
+    wpis = konkurs_wpis(id)
+    if not wpis:
+        await interaction.response.send_message("⚠️ Nie znaleziono konkursu o takim ID.", ephemeral=True)
+        return
+    if not wpis.get("zakonczony"):
+        await interaction.response.send_message("⚠️ Ten konkurs jeszcze się nie zakończył.", ephemeral=True)
+        return
+    await interaction.response.send_message(f"🔄 Losowanie ponowne konkursu **#{id}**...", ephemeral=True)
+    await zakoncz_konkurs(bot, id, reroll=True)
+
+
+@konkurs_group.command(name="usun", description="Usuwa konkurs bez losowania zwycięzców")
+@app_commands.describe(id="ID konkursu (widoczne w /konkurs lista)")
+async def konkurs_usun(interaction: discord.Interaction, id: str):
+    if not is_staff(interaction):
+        await interaction.response.send_message("⚠️ Nie masz uprawnień do tej komendy.", ephemeral=True)
+        return
+    wpis = CONFIG["konkursy"].pop(id, None)
+    if not wpis:
+        await interaction.response.send_message("⚠️ Nie znaleziono konkursu o takim ID.", ephemeral=True)
+        return
+    save_config()
+    try:
+        kanal = interaction.guild.get_channel(wpis["kanal_id"])
+        wiadomosc = await kanal.fetch_message(wpis["message_id"])
+        await wiadomosc.delete()
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
+        pass
+    await interaction.response.send_message(f"✅ Usunięto konkurs **#{id}**.", ephemeral=True)
+
+
+@konkurs_group.command(name="lista", description="Wyświetla listę aktywnych konkursów")
+async def konkurs_lista(interaction: discord.Interaction):
+    aktywne = {k: v for k, v in CONFIG["konkursy"].items() if not v.get("zakonczony")}
+    if not aktywne:
+        await interaction.response.send_message("📋 Brak aktywnych konkursów.", ephemeral=True)
+        return
+    linie = []
+    for konkurs_id, wpis in aktywne.items():
+        linie.append(f"**#{konkurs_id}** — `{wpis['nagroda']}` — <t:{int(wpis['koniec'])}:R> — "
+                      f"{len(wpis.get('uczestnicy', []))} {forma_osob(len(wpis.get('uczestnicy', [])))}")
+    view = PanelView("Aktywne Konkursy", "\n".join(linie)[:3900], "akcent")
+    await interaction.response.send_message(view=view, ephemeral=True)
+
+
+# ========================
 #   PROGRAM PARTNERSKI
 # ========================
 
@@ -816,6 +1130,7 @@ async def konfig_kolor(interaction: discord.Interaction, typ: app_commands.Choic
     app_commands.Choice(name="Opinie", value="opinie"),
     app_commands.Choice(name="Partnerstwo", value="partnerstwo"),
     app_commands.Choice(name="Nowa osoba", value="nowa_osoba"),
+    app_commands.Choice(name="Konkurs", value="konkurs"),
 ])
 async def konfig_obrazek(interaction: discord.Interaction, panel: app_commands.Choice[str], plik: discord.Attachment):
     if not is_admin(interaction):
@@ -855,6 +1170,7 @@ async def konfig_rola(interaction: discord.Interaction, typ: app_commands.Choice
     app_commands.Choice(name="Partnerstwa", value="partnerstwa"),
     app_commands.Choice(name="Blacklista", value="blacklista"),
     app_commands.Choice(name="Powitania (nowa osoba)", value="nowa_osoba"),
+    app_commands.Choice(name="Konkursy (domyślny kanał)", value="konkursy"),
 ])
 async def konfig_kanal(interaction: discord.Interaction, typ: app_commands.Choice[str], kanal: discord.TextChannel):
     if not is_admin(interaction):
@@ -997,6 +1313,7 @@ bot.tree.add_command(regulamin_group)
 bot.tree.add_command(panel_group)
 bot.tree.add_command(blacklista_group)
 bot.tree.add_command(partnerstwo_group)
+bot.tree.add_command(konkurs_group)
 
 
 @bot.event
@@ -1007,6 +1324,19 @@ async def on_ready():
     bot.add_view(build_ticket_wiadomosc("_", "_"))
     bot.add_view(WystawOpiniePanel())
     bot.add_view(ZostanRealizatoremPanel())
+
+    # Przywracamy trwałe widoki wszystkich niezakończonych konkursów (żeby przyciski
+    # działały po restarcie bota) i doganiamy te, których czas minął w międzyczasie.
+    teraz = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    for konkurs_id, wpis in list(CONFIG["konkursy"].items()):
+        if not wpis.get("zakonczony"):
+            if wpis.get("koniec", 0) <= teraz:
+                await zakoncz_konkurs(bot, konkurs_id)
+            elif wpis.get("message_id"):
+                bot.add_view(build_konkurs_panel(konkurs_id), message_id=wpis["message_id"])
+
+    if not sprawdzaj_konkursy.is_running():
+        sprawdzaj_konkursy.start()
 
     if TEST_GUILD_ID:
         guild_obj = discord.Object(id=TEST_GUILD_ID)
