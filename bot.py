@@ -182,9 +182,10 @@ def small_caps(text: str) -> str:
 
 
 def header_text(sekcja: str) -> discord.ui.TextDisplay:
-    """Duży, wytłuszczony nagłówek panelu (Markdown heading), tak jak w oryginalnym stylu."""
+    """Duży nagłówek panelu w ramce (blok kodu na całą szerokość) - dokładnie tak jak
+    w oryginalnym stylu, tylko większy i wyraźniejszy niż mała 'pigułka'."""
     nazwa = CONFIG.get("nazwa_sklepu", "Shop").upper()
-    etykieta = f"## 💎 {nazwa} X {sekcja.upper()}"
+    etykieta = f"```\n💎 {nazwa} X {sekcja.upper()}\n```"
     return discord.ui.TextDisplay(etykieta)
 
 
@@ -383,7 +384,7 @@ class RegulaminNawigacja(discord.ui.LayoutView):
         strona_dane = strony[strona]
 
         nazwa = CONFIG.get("nazwa_sklepu", "Shop").upper()
-        etykieta_naglowka = f"## 💎 REGULAMIN {nazwa} - STRONA {strona + 1}/{len(strony)}"
+        etykieta_naglowka = f"```\n💎 REGULAMIN {nazwa} - STRONA {strona + 1}/{len(strony)}\n```"
         naglowek = discord.ui.TextDisplay(etykieta_naglowka)
         tresc = cytuj(f"**{strona_dane['tytul']}**\n\n{strona_dane['tresc']}")
 
@@ -1407,7 +1408,7 @@ class PomocPanel(discord.ui.LayoutView):
         dane = POMOC_KATEGORIE.get(kategoria, POMOC_KATEGORIE["ogolne"])
 
         nazwa = CONFIG.get("nazwa_sklepu", "Shop").upper()
-        naglowek = discord.ui.TextDisplay(f"## 💎 {nazwa} X POMOC — {dane['etykieta'].upper()}")
+        naglowek = discord.ui.TextDisplay(f"```\n💎 {nazwa} X POMOC — {dane['etykieta'].upper()}\n```")
 
         dzieci = [naglowek, discord.ui.Separator(), discord.ui.TextDisplay(cytuj(dane["tresc"])),
                   discord.ui.Separator(), discord.ui.ActionRow(PomocSelect(kategoria)),
