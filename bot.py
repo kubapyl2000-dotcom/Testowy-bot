@@ -1305,6 +1305,115 @@ async def panel_realizator(interaction: discord.Interaction, kanal: discord.Text
 
 
 # ========================
+#   /pomoc  — panel ze wszystkimi komendami bota
+# ========================
+
+POMOC_KATEGORIE = {
+    "ogolne": {
+        "etykieta": "🧭 Ogólne",
+        "tresc": (
+            "» **Weryfikacja** i **tickety** nie mają osobnych komend — obsługujesz je przyciskami "
+            "na panelach wysłanych przez administrację.\n\n"
+            "`/pomoc` — Pokazuje ten panel pomocy."
+        ),
+    },
+    "regulamin": {
+        "etykieta": "📜 Regulamin",
+        "tresc": (
+            "`/regulamin dodaj_strone` — Dodaje nową stronę regulaminu. *(Admin)*\n"
+            "`/regulamin edytuj_strone <numer>` — Edytuje istniejącą stronę. *(Admin)*\n"
+            "`/regulamin usun_strone <numer>` — Usuwa stronę regulaminu. *(Admin)*\n"
+            "`/regulamin wyslij <kanal>` — Wysyła / odświeża panel regulaminu. *(Admin)*"
+        ),
+    },
+    "blacklista": {
+        "etykieta": "🚫 Blacklista",
+        "tresc": (
+            "`/blacklista dodaj <nick> <powod>` — Dodaje użytkownika do blacklisty. *(Staff)*\n"
+            "`/blacklista usun <nick>` — Usuwa użytkownika z blacklisty. *(Staff)*\n"
+            "`/blacklista sprawdz <nick>` — Sprawdza, czy nick jest na blackliście.\n"
+            "`/blacklista lista` — Wyświetla całą blacklistę."
+        ),
+    },
+    "partnerstwo": {
+        "etykieta": "🤝 Partnerstwo",
+        "tresc": (
+            "`/partnerstwo zglos <partner>` — Zgłasza nawiązane partnerstwo. *(Realizator/Staff)*\n"
+            "`/partnerstwo statystyki` — Pokazuje Twoje statystyki partnerskie.\n"
+            "`/partnerstwo ranking` — Pokazuje ranking najlepszych realizatorów.\n"
+            "`/partnerstwo stawka <kwota>` — Ustawia stawkę za partnerstwo. *(Admin)*"
+        ),
+    },
+    "konkursy": {
+        "etykieta": "🎉 Konkursy",
+        "tresc": (
+            "`/konkurs stworz <nagroda> <zwyciezcy> <czas>` — Tworzy nowy konkurs. *(Staff)*\n"
+            "`/konkurs zakoncz <id>` — Kończy konkurs przed czasem i losuje zwycięzców. *(Staff)*\n"
+            "`/konkurs reroll <id>` — Losuje nowych zwycięzców ponownie. *(Staff)*\n"
+            "`/konkurs usun <id>` — Usuwa konkurs bez losowania. *(Staff)*\n"
+            "`/konkurs lista` — Wyświetla listę aktywnych konkursów."
+        ),
+    },
+    "panele": {
+        "etykieta": "🖼️ Panele",
+        "tresc": (
+            "`/panel weryfikacja <kanal>` — Wysyła / odświeża panel weryfikacji. *(Admin)*\n"
+            "`/panel tickety <kanal>` — Wysyła / odświeża panel ticketów. *(Admin)*\n"
+            "`/panel opinie <kanal>` — Wysyła / odświeża panel opinii. *(Admin)*\n"
+            "`/panel realizator <kanal>` — Wysyła / odświeża panel realizatora. *(Admin)*"
+        ),
+    },
+    "konfiguracja": {
+        "etykieta": "⚙️ Konfiguracja",
+        "tresc": (
+            "`/konfiguracja nazwa <nazwa>` — Ustawia nazwę sklepu. *(Admin)*\n"
+            "`/konfiguracja kolor <typ> <hex>` — Zmienia kolor paneli. *(Admin)*\n"
+            "`/konfiguracja obrazek <panel> <plik>` — Ustawia obrazek panelu. *(Admin)*\n"
+            "`/konfiguracja rola <typ> <rola>` — Ustawia rolę używaną przez bota. *(Admin)*\n"
+            "`/konfiguracja kanal <typ> <kanal>` — Ustawia kanał używany przez bota. *(Admin)*\n"
+            "`/konfiguracja kategoria_ticketow <kategoria>` — Ustawia kategorię ticketów. *(Admin)*\n"
+            "`/konfiguracja podglad` — Pokazuje aktualną konfigurację bota. *(Admin)*"
+        ),
+    },
+}
+
+
+class PomocSelect(discord.ui.Select):
+    def __init__(self, aktualna: str):
+        opcje = [
+            discord.SelectOption(label=dane["etykieta"], value=klucz, default=(klucz == aktualna))
+            for klucz, dane in POMOC_KATEGORIE.items()
+        ]
+        super().__init__(placeholder="Wybierz kategorię komend...", options=opcje,
+                          custom_id="shopbot:pomoc:select", min_values=1, max_values=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(view=PomocPanel(self.values[0]))
+
+
+class PomocPanel(discord.ui.LayoutView):
+    def __init__(self, kategoria: str = "ogolne"):
+        super().__init__(timeout=300)
+        self.plik = None
+        dane = POMOC_KATEGORIE.get(kategoria, POMOC_KATEGORIE["ogolne"])
+
+        nazwa = CONFIG.get("nazwa_sklepu", "Shop").upper()
+        naglowek = discord.ui.TextDisplay(f"`💎 {nazwa} X POMOC — {dane['etykieta'].upper()}`")
+
+        dzieci = [naglowek, discord.ui.Separator(), discord.ui.TextDisplay(dane["tresc"]),
+                  discord.ui.Separator(), discord.ui.ActionRow(PomocSelect(kategoria)),
+                  discord.ui.Separator(spacing=discord.SeparatorSpacing.small),
+                  discord.ui.TextDisplay(footer_line("Pomoc"))]
+        self.container = discord.ui.Container(*dzieci, accent_color=get_color("akcent"))
+        self.add_item(self.container)
+
+
+@bot.tree.command(name="pomoc", description="Pokazuje wszystkie dostępne komendy bota")
+async def pomoc_cmd(interaction: discord.Interaction):
+    await interaction.response.send_message(view=PomocPanel(), ephemeral=True)
+
+
+# ========================
 #   START BOTA
 # ========================
 
