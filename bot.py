@@ -1,7 +1,7 @@
 import os
 import json
 import datetime
-from typing import Optional
+from typing import Optional, List, Tuple
 
 import discord
 from discord.ext import commands
@@ -29,7 +29,7 @@ DEFAULT_CONFIG = {
     "footer": "© {rok} {sklep}",
 
     "colors": {
-        "akcent": "#5865F2",     # główny kolor większości paneli
+        "akcent": "#5865F2",
         "sukces": "#57F287",
         "blad": "#ED4245",
     },
@@ -58,54 +58,35 @@ DEFAULT_CONFIG = {
     },
     "ticket_category_id": 0,
 
-    "panel_messages": {},  # klucz -> {"channel_id":.., "message_id":..} - żeby edycja configu edytowała istniejący panel, a nie duplikowała
+    "panel_messages": {},  # klucz -> {"channel_id":.., "message_id":..}
 
     # ---- Weryfikacja ----
-    "weryfikacja_tytul": "💎 {sklep} × Weryfikacja",
     "weryfikacja_opis": (
         "» **Hej!** Naciśnij przycisk **poniżej**, żeby się zweryfikować! Dzięki temu uzyskasz pełny "
         "dostęp **do wszystkich** kanałów serwera.\n\n"
         "» pssst! Nie sprzedajemy cię jako membersa/**nie dodajemy** cię nigdzie!"
     ),
-    "weryfikacja_przycisk": "Kliknij, aby zweryfikować się na naszym serwerze!",
 
-    # ---- Regulamin (wielostronicowy, jak w panelu na screenach) ----
+    # ---- Regulamin ----
     "regulamin_strony": [
-        {
-            "tytul": "1. Zasady ogólne",
-            "tresc": (
-                "1.1. Administracja może odmówić obsługi lub usunąć użytkownika, który łamie regulamin.\n"
-                "1.2. Regulamin może zostać zmieniony w każdej chwili.\n"
-                "1.3. Korzystając z serwera, akceptujesz ten regulamin."
-            ),
-        },
-        {
-            "tytul": "2. Zakupy",
-            "tresc": (
-                "2.1. Wszystkie zakupy są ostateczne, chyba że wcześniej ustalono inaczej.\n"
-                "2.2. Realizacja zamówienia trwa do 6 godzin.\n"
-                "2.3. Dane użytkowników przetwarzamy tylko na potrzeby realizacji zamówienia."
-            ),
-        },
-        {
-            "tytul": "3. Legit check i reklamacje",
-            "tresc": (
-                "3.1. Masz 24 godziny na dodanie legit checka po zakupie.\n"
-                "3.2. Reklamacje przyjmujemy tylko przez system ticketów.\n"
-                "3.3. Bez legit checka reklamacji nie rozpatrujemy."
-            ),
-        },
-        {
-            "tytul": "4. Zachowanie na serwerze",
-            "tresc": (
-                "4.1. Podczas zakupów, reklamacji i pytań wymagana jest kultura i szacunek.\n"
-                "4.2. Prowokacje, spam i trolling skutkują ostrzeżeniami lub banem."
-            ),
-        },
+        {"tytul": "1. Zasady ogólne", "tresc": (
+            "1.1. Administracja może odmówić obsługi lub usunąć użytkownika, który łamie regulamin.\n"
+            "1.2. Regulamin może zostać zmieniony w każdej chwili.\n"
+            "1.3. Korzystając z serwera, akceptujesz ten regulamin.")},
+        {"tytul": "2. Zakupy", "tresc": (
+            "2.1. Wszystkie zakupy są ostateczne, chyba że wcześniej ustalono inaczej.\n"
+            "2.2. Realizacja zamówienia trwa do 6 godzin.\n"
+            "2.3. Dane użytkowników przetwarzamy tylko na potrzeby realizacji zamówienia.")},
+        {"tytul": "3. Legit check i reklamacje", "tresc": (
+            "3.1. Masz 24 godziny na dodanie legit checka po zakupie.\n"
+            "3.2. Reklamacje przyjmujemy tylko przez system ticketów.\n"
+            "3.3. Bez legit checka reklamacji nie rozpatrujemy.")},
+        {"tytul": "4. Zachowanie na serwerze", "tresc": (
+            "4.1. Podczas zakupów, reklamacji i pytań wymagana jest kultura i szacunek.\n"
+            "4.2. Prowokacje, spam i trolling skutkują ostrzeżeniami lub banem.")},
     ],
 
     # ---- Panel ticketów ----
-    "ticket_tytul": "💎 {sklep} × Tickety",
     "ticket_opis": (
         "» Chcesz zakupić produkt bądź potrzebujesz pomocy od administracji? Bądź Twój produkt wygasł "
         "i chcesz go wymienić? Lub coś innego?\n\n"
@@ -121,19 +102,17 @@ DEFAULT_CONFIG = {
     "ticket_wiadomosc_tresc": "Witaj na swoim zgłoszeniu, {mention}! Poczekaj cierpliwie na {rola}.",
 
     # ---- Nowa osoba ----
-    "nowa_osoba_tytul": "💎 {sklep} × Nowa Osoba",
     "nowa_osoba_tresc": (
-        "» Hejka {mention}! Miło Cię u nas widzieć!\n"
+        "» **Hejka {mention}!** Miło Cię u nas widzieć!\n"
         "» Jest nam mega miło, że wpadłeś. Rozgość się.\n\n"
         "📌 Przypominamy, że nieprzestrzeganie regulaminu może wiązać się z konsekwencjami.\n\n"
         "Dzięki, że wbiłeś! Jesteś naszym **{ilosc}** użytkownikiem."
     ),
 
     # ---- Program partnerski ----
-    "partnerstwo_stawka": 0.70,      # kwota wypłacana realizatorowi za jedno partnerstwo - edytowalna
+    "partnerstwo_stawka": 0.70,
     "partnerstwo_waluta": "PLN",
-    "partnerstwo_dane": {},          # user_id(str) -> {"liczba": int, "zarobek": float}
-    "zostan_realizatorem_tytul": "💎 {sklep} × Zostań Realizatorem",
+    "partnerstwo_dane": {},
     "zostan_realizatorem_opis": (
         "» Chcesz **zarobić** w pełni **legalną** i szybką kaskę? Wystarczy **realizować partnerstwa** "
         "na naszym serwerze!\n\n"
@@ -142,10 +121,9 @@ DEFAULT_CONFIG = {
     ),
 
     # ---- Blacklista ----
-    "blacklista_dane": {},  # klucz (nick, lowercase) -> {"powod":.., "data":.., "dodal": staff_id}
+    "blacklista_dane": {},
 
     # ---- Opinie ----
-    "opinie_tytul": "💎 {sklep} × Wystaw Opinię",
     "opinie_opis": (
         "» Wystawiając nam opinię dajesz innym znać, co Cię u nas zadowoliło.\n"
         "» Będziemy super wdzięczni za każdą wystawioną opinię - to buduje zaufanie do naszego sklepu.\n"
@@ -191,14 +169,14 @@ _SMALL_CAPS = str.maketrans(
 
 
 def small_caps(text: str) -> str:
-    """Zamienia tekst na wersję 'small caps' - taki sam efekt wizualny nagłówków
-    (pigułek) jak na oryginalnych screenach. Duże litery i znaki specjalne zostają bez zmian."""
+    """Efekt wizualny 'small caps' w nagłówkach paneli, tak jak w oryginalnym stylu."""
     return text.lower().translate(_SMALL_CAPS)
 
 
-def pill_title(sekcja: str) -> str:
-    """Buduje nagłówek w stylu 💎 ' NAZWA™ × SEKCJA (jak w oryginalnym panelu)."""
-    return f"💎 ᐧ {small_caps(CONFIG.get('nazwa_sklepu', 'Shop'))} × {small_caps(sekcja)}"
+def header_line(sekcja: str) -> str:
+    """Nagłówek panelu, np. '💎 ⋅ PIXELMARKET × WERYFIKACJA' w wersji small-caps, pogrubiony."""
+    nazwa = small_caps(CONFIG.get("nazwa_sklepu", "Shop"))
+    return f"### 💎 ⋅ {nazwa} × {small_caps(sekcja)}"
 
 
 def render(template: str, **kwargs) -> str:
@@ -221,54 +199,94 @@ def get_color(typ: str = "akcent") -> discord.Color:
         return discord.Color.blurple()
 
 
-def footer_icon(guild: Optional[discord.Guild]):
-    return guild.icon.url if guild and guild.icon else None
-
-
-def base_embed(typ: str = "akcent", **kwargs) -> discord.Embed:
-    embed = discord.Embed(color=get_color(typ), timestamp=datetime.datetime.now(datetime.timezone.utc), **kwargs)
-    return embed
-
-
-def set_footer(embed: discord.Embed, guild: Optional[discord.Guild], extra: str = ""):
+def footer_line(sekcja: str) -> str:
     tekst = render(CONFIG["footer"])
-    if extra:
-        tekst = f"{tekst} × {extra}"
-    embed.set_footer(text=tekst, icon_url=footer_icon(guild))
+    return f"-# © {datetime.datetime.now().year} {render('{sklep}')} × {sekcja}"
 
 
-def prepare_embed_image(embed: discord.Embed, typ: str, thumb: bool = False) -> Optional[discord.File]:
+def image_file_and_url(typ: str) -> Tuple[Optional[discord.File], Optional[str]]:
     sciezka = CONFIG["images"].get(typ)
     if not sciezka or not os.path.exists(sciezka):
-        return None
+        return None, None
     nazwa = os.path.basename(sciezka)
-    if thumb:
-        embed.set_thumbnail(url=f"attachment://{nazwa}")
-    else:
-        embed.set_image(url=f"attachment://{nazwa}")
-    return discord.File(sciezka, filename=nazwa)
+    return discord.File(sciezka, filename=nazwa), f"attachment://{nazwa}"
 
 
-async def send_or_edit_panel(target: discord.TextChannel, embed: discord.Embed, view: Optional[discord.ui.View],
-                              klucz: str, plik: Optional[discord.File] = None):
+class PanelView(discord.ui.LayoutView):
+    """Generyczny budowniczy 'karty' w stylu Components V2 - dokładnie taki wygląd (ramka,
+    nagłówek-pigułka, treść, przyciski/select w tej samej ramce, stopka) jak na oryginalnych screenach."""
+
+    def __init__(self, sekcja: str, opis: str, typ_koloru: str = "akcent",
+                 items: Optional[List[discord.ui.Item]] = None, obrazek_typ: Optional[str] = None,
+                 miniaturka: bool = False):
+        super().__init__(timeout=None)
+        self.plik: Optional[discord.File] = None
+
+        dzieci: List[discord.ui.Item] = [discord.ui.TextDisplay(header_line(sekcja))]
+        dzieci.append(discord.ui.Separator())
+        dzieci.append(discord.ui.TextDisplay(opis))
+
+        if obrazek_typ:
+            plik, url = image_file_and_url(obrazek_typ)
+            if url:
+                self.plik = plik
+                if miniaturka:
+                    # doczepiamy miniaturkę do bloku treści zamiast osobnej sekcji
+                    dzieci[-1] = discord.ui.Section(opis, accessory=discord.ui.Thumbnail(media=url))
+                else:
+                    dzieci.append(discord.ui.Separator())
+                    dzieci.append(discord.ui.MediaGallery(discord.MediaGalleryItem(url)))
+
+        if items:
+            dzieci.append(discord.ui.Separator())
+            dzieci.append(discord.ui.ActionRow(*items))
+
+        dzieci.append(discord.ui.Separator(spacing=discord.SeparatorSpacing.small))
+        dzieci.append(discord.ui.TextDisplay(footer_line(sekcja)))
+
+        self.container = discord.ui.Container(*dzieci, accent_color=get_color(typ_koloru))
+        self.add_item(self.container)
+
+
+async def send_or_edit_panel(target: discord.TextChannel, view: PanelView, klucz: str):
     """Wysyła panel na kanał, albo edytuje wcześniej wysłaną wiadomość (ten sam klucz + kanał),
     żeby zmiana treści w configu nie tworzyła duplikatów paneli."""
     info = CONFIG["panel_messages"].setdefault(klucz, {"channel_id": 0, "message_id": 0})
     if info["channel_id"] == target.id and info["message_id"]:
         try:
             msg = await target.fetch_message(info["message_id"])
-            if plik:
-                await msg.edit(embed=embed, view=view, attachments=[plik])
+            if view.plik:
+                await msg.edit(view=view, attachments=[view.plik])
             else:
-                await msg.edit(embed=embed, view=view)
+                await msg.edit(view=view)
             return msg
         except (discord.NotFound, discord.Forbidden, discord.HTTPException):
             pass
-    msg = await target.send(embed=embed, view=view, file=plik)
+    if view.plik:
+        msg = await target.send(view=view, file=view.plik)
+    else:
+        msg = await target.send(view=view)
     info["channel_id"] = target.id
     info["message_id"] = msg.id
     save_config()
     return msg
+
+
+async def send_dynamic_card(target: discord.abc.Messageable, sekcja: str, opis: str, typ_koloru: str = "akcent",
+                             obrazek_typ: Optional[str] = None, miniaturka: bool = False,
+                             ekstra_reakcja: Optional[str] = None):
+    """Jednorazowa karta (np. ogłoszenie opinii/blacklisty/partnerstwa) w tym samym stylu co panele."""
+    view = PanelView(sekcja, opis, typ_koloru, items=None, obrazek_typ=obrazek_typ, miniaturka=miniaturka)
+    if view.plik:
+        wiadomosc = await target.send(view=view, file=view.plik)
+    else:
+        wiadomosc = await target.send(view=view)
+    if ekstra_reakcja:
+        try:
+            await wiadomosc.add_reaction(ekstra_reakcja)
+        except discord.HTTPException:
+            pass
+    return wiadomosc
 
 
 # ========================
@@ -280,7 +298,6 @@ intents.members = True
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-ADMIN_ONLY = app_commands.checks.has_permissions(administrator=True)
 
 
 def is_admin(interaction: discord.Interaction) -> bool:
@@ -302,13 +319,12 @@ def is_staff(interaction: discord.Interaction) -> bool:
 #   (samo przyznanie roli przez bota - bez żadnych zewnętrznych stron/OAuth)
 # ========================
 
-class WeryfikacjaView(discord.ui.View):
+class WeryfikacjaButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(timeout=None)
+        super().__init__(label="Kliknij, aby zweryfikować się na naszym serwerze!",
+                          style=discord.ButtonStyle.success, emoji="✅", custom_id="shopbot:weryfikacja")
 
-    @discord.ui.button(label="Kliknij, aby zweryfikować się na naszym serwerze!",
-                        style=discord.ButtonStyle.success, emoji="✅", custom_id="shopbot:weryfikacja")
-    async def weryfikuj(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def callback(self, interaction: discord.Interaction):
         rola_id = CONFIG["roles"].get("zweryfikowany")
         rola = interaction.guild.get_role(rola_id) if rola_id else None
         if not rola:
@@ -327,59 +343,55 @@ class WeryfikacjaView(discord.ui.View):
         await interaction.response.send_message("✅ Zweryfikowano pomyślnie! Miłego pobytu.", ephemeral=True)
 
 
+def build_weryfikacja_panel() -> PanelView:
+    return PanelView("Weryfikacja", render(CONFIG["weryfikacja_opis"]), items=[WeryfikacjaButton()],
+                      obrazek_typ="weryfikacja", miniaturka=True)
+
+
 async def wyslij_panel_weryfikacji(kanal: discord.TextChannel):
-    embed = base_embed("akcent", title=pill_title("Weryfikacja"),
-                        description=render(CONFIG["weryfikacja_opis"]))
-    plik = prepare_embed_image(embed, "weryfikacja")
-    set_footer(embed, kanal.guild, "Weryfikacja")
-    await send_or_edit_panel(kanal, embed, WeryfikacjaView(), "weryfikacja", plik)
+    await send_or_edit_panel(kanal, build_weryfikacja_panel(), "weryfikacja")
 
 
 # ========================
 #   REGULAMIN (panel wielostronicowy z Poprzednia/Nastepna)
 # ========================
 
-class RegulaminView(discord.ui.View):
+class RegulaminNawigacja(discord.ui.LayoutView):
     def __init__(self, strona: int = 0):
         super().__init__(timeout=None)
         self.strona = strona
-        self.update_buttons()
-
-    def update_buttons(self):
+        self.plik = None
         strony = CONFIG["regulamin_strony"]
-        self.poprzednia.disabled = self.strona <= 0
-        self.nastepna.disabled = self.strona >= len(strony) - 1
+        strona_dane = strony[strona]
 
-    def build_embed(self, guild: Optional[discord.Guild]) -> discord.Embed:
-        strony = CONFIG["regulamin_strony"]
-        strona_dane = strony[self.strona]
-        naglowek = pill_title("Regulamin")
-        slowo_strona = small_caps("strona")
-        embed = base_embed("akcent",
-                            title=f"{naglowek} — {slowo_strona} {self.strona + 1}/{len(strony)}",
-                            description=f"**{strona_dane['tytul']}**\n\n{strona_dane['tresc']}")
-        set_footer(embed, guild, "Regulamin")
-        return embed
+        naglowek = f"### 💎 ⋅ {small_caps(CONFIG.get('nazwa_sklepu', 'Shop'))} × {small_caps('regulamin')}" \
+                   f" — {small_caps('strona')} {strona + 1}/{len(strony)}"
+        tresc = f"**{strona_dane['tytul']}**\n\n{strona_dane['tresc']}"
 
-    @discord.ui.button(label="← Poprzednia", style=discord.ButtonStyle.secondary, custom_id="shopbot:regulamin:prev")
-    async def poprzednia(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.strona = max(0, self.strona - 1)
-        self.update_buttons()
-        await interaction.response.edit_message(embed=self.build_embed(interaction.guild), view=self)
+        poprzednia = discord.ui.Button(label="← Poprzednia", style=discord.ButtonStyle.secondary,
+                                        custom_id="shopbot:regulamin:prev", disabled=(strona <= 0))
+        nastepna = discord.ui.Button(label="Następna →", style=discord.ButtonStyle.secondary,
+                                      custom_id="shopbot:regulamin:next", disabled=(strona >= len(strony) - 1))
+        poprzednia.callback = self._callback_factory(-1)
+        nastepna.callback = self._callback_factory(1)
 
-    @discord.ui.button(label="Następna →", style=discord.ButtonStyle.secondary, custom_id="shopbot:regulamin:next")
-    async def nastepna(self, interaction: discord.Interaction, button: discord.ui.Button):
-        strony = CONFIG["regulamin_strony"]
-        self.strona = min(len(strony) - 1, self.strona + 1)
-        self.update_buttons()
-        await interaction.response.edit_message(embed=self.build_embed(interaction.guild), view=self)
+        dzieci = [discord.ui.TextDisplay(naglowek), discord.ui.Separator(), discord.ui.TextDisplay(tresc),
+                  discord.ui.Separator(), discord.ui.ActionRow(poprzednia, nastepna),
+                  discord.ui.Separator(spacing=discord.SeparatorSpacing.small),
+                  discord.ui.TextDisplay(footer_line("Regulamin"))]
+        self.container = discord.ui.Container(*dzieci, accent_color=get_color("akcent"))
+        self.add_item(self.container)
+
+    def _callback_factory(self, kierunek: int):
+        async def callback(interaction: discord.Interaction):
+            strony = CONFIG["regulamin_strony"]
+            nowa_strona = max(0, min(len(strony) - 1, self.strona + kierunek))
+            await interaction.response.edit_message(view=RegulaminNawigacja(nowa_strona))
+        return callback
 
 
 async def wyslij_panel_regulaminu(kanal: discord.TextChannel):
-    view = RegulaminView(0)
-    embed = view.build_embed(kanal.guild)
-    plik = prepare_embed_image(embed, "regulamin")
-    await send_or_edit_panel(kanal, embed, view, "regulamin", plik)
+    await send_or_edit_panel(kanal, RegulaminNawigacja(0), "regulamin")
 
 
 class DodajStroneRegulaminuModal(discord.ui.Modal, title="Dodaj stronę regulaminu"):
@@ -418,13 +430,12 @@ class EdytujStroneRegulaminuModal(discord.ui.Modal, title="Edytuj stronę regula
 #   TICKETY
 # ========================
 
-class ZamknijTicketView(discord.ui.View):
+class ZamknijTicketButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(timeout=None)
+        super().__init__(label="Zamknij ticket", style=discord.ButtonStyle.danger, emoji="🔒",
+                          custom_id="shopbot:ticket:zamknij")
 
-    @discord.ui.button(label="Zamknij ticket", style=discord.ButtonStyle.danger, emoji="🔒",
-                        custom_id="shopbot:ticket:zamknij")
-    async def zamknij(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def callback(self, interaction: discord.Interaction):
         if not is_staff(interaction):
             await interaction.response.send_message("⚠️ Tylko staff może zamykać tickety.", ephemeral=True)
             return
@@ -435,6 +446,11 @@ class ZamknijTicketView(discord.ui.View):
             await interaction.channel.delete(reason=f"Ticket zamknięty przez {interaction.user}")
         except discord.HTTPException:
             pass
+
+
+def build_ticket_wiadomosc(mention: str, rola_mention: str) -> PanelView:
+    tresc = render(CONFIG["ticket_wiadomosc_tresc"], mention=mention, rola=rola_mention)
+    return PanelView("Ticket", tresc, items=[ZamknijTicketButton()])
 
 
 class TicketKategoriaSelect(discord.ui.Select):
@@ -474,28 +490,21 @@ class TicketKategoriaSelect(discord.ui.Select):
             reason=f"Nowy ticket ({klucz}) od {interaction.user}",
         )
 
-        embed = base_embed("akcent", title=f"🎫 Ticket — {CONFIG['ticket_kategorie'][klucz]['etykieta']}",
-                            description=render(CONFIG["ticket_wiadomosc_tresc"],
-                                                mention=interaction.user.mention,
-                                                rola=staff_rola.mention if staff_rola else "administracją"))
-        set_footer(embed, guild, "Tickety")
+        view = build_ticket_wiadomosc(interaction.user.mention, staff_rola.mention if staff_rola else "administracją")
         await kanal.send(content=f"{interaction.user.mention}" + (f" {staff_rola.mention}" if staff_rola else ""),
-                          embed=embed, view=ZamknijTicketView())
+                          view=view)
 
         await interaction.response.send_message(f"✅ Utworzono Twój ticket: {kanal.mention}", ephemeral=True)
 
 
-class TicketPanelView(discord.ui.View):
+class TicketPanelWidok(PanelView):
     def __init__(self):
-        super().__init__(timeout=None)
-        self.add_item(TicketKategoriaSelect())
+        super().__init__("Tickety", render(CONFIG["ticket_opis"]), items=[TicketKategoriaSelect()],
+                          obrazek_typ="ticket_panel")
 
 
 async def wyslij_panel_ticketow(kanal: discord.TextChannel):
-    embed = base_embed("akcent", title=pill_title("Tickety"), description=render(CONFIG["ticket_opis"]))
-    plik = prepare_embed_image(embed, "ticket_panel")
-    set_footer(embed, kanal.guild)
-    await send_or_edit_panel(kanal, embed, TicketPanelView(), "ticket_panel", plik)
+    await send_or_edit_panel(kanal, TicketPanelWidok(), "ticket_panel")
 
 
 # ========================
@@ -524,37 +533,34 @@ class OpiniaModal(discord.ui.Modal, title="Wystaw opinię"):
                 "⚠️ Kanał opinii nie jest jeszcze ustawiony. Napisz do administracji.", ephemeral=True)
             return
 
-        embed = base_embed("akcent", title="💎 Opinia")
-        embed.add_field(name="Twórca opinii", value=interaction.user.mention, inline=False)
-        embed.add_field(name="Treść", value=str(self.tresc), inline=False)
-        embed.add_field(name="Co możemy poprawić?", value=str(self.poprawa), inline=False)
-        embed.add_field(name="🛒 Jakość produktu", value=gwiazdki(str(self.produkt)))
-        embed.add_field(name="🏛️ Czas realizacji", value=gwiazdki(str(self.czas)))
-        embed.add_field(name="⏱️ Przebieg transakcji", value=gwiazdki(str(self.przebieg)))
-        set_footer(embed, interaction.guild, "Opinie")
-        wiadomosc = await kanal.send(embed=embed)
-        try:
-            await wiadomosc.add_reaction("❤️")
-        except discord.HTTPException:
-            pass
+        tresc = (
+            f"» **Twórca opinii:** {interaction.user.mention}\n"
+            f"» **Treść:** {self.tresc}\n"
+            f"» **Co możemy poprawić?** {self.poprawa}\n\n"
+            f"🛒 **Jakość produktu:** {gwiazdki(str(self.produkt))}\n"
+            f"🏛️ **Czas realizacji:** {gwiazdki(str(self.czas))}\n"
+            f"⏱️ **Przebieg transakcji:** {gwiazdki(str(self.przebieg))}"
+        )
+        await send_dynamic_card(kanal, "Opinia", tresc, "akcent", ekstra_reakcja="❤️")
         await interaction.response.send_message(f"✅ Dziękujemy za opinię! Widać ją na {kanal.mention}.", ephemeral=True)
 
 
-class WystawOpinieView(discord.ui.View):
+class WystawOpinieButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(timeout=None)
+        super().__init__(label="Kliknij, aby wystawić opinię!", style=discord.ButtonStyle.primary, emoji="✍️",
+                          custom_id="shopbot:opinia")
 
-    @discord.ui.button(label="Kliknij, aby wystawić opinię!", style=discord.ButtonStyle.primary, emoji="✍️",
-                        custom_id="shopbot:opinia")
-    async def wystaw(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def callback(self, interaction: discord.Interaction):
         await interaction.response.send_modal(OpiniaModal())
 
 
+class WystawOpiniePanel(PanelView):
+    def __init__(self):
+        super().__init__("Wystaw Opinię", render(CONFIG["opinie_opis"]), items=[WystawOpinieButton()])
+
+
 async def wyslij_panel_opinii(kanal: discord.TextChannel):
-    embed = base_embed("akcent", title=pill_title("Wystaw Opinię"), description=render(CONFIG["opinie_opis"]))
-    plik = prepare_embed_image(embed, "opinie")
-    set_footer(embed, kanal.guild, "Blacklista")
-    await send_or_edit_panel(kanal, embed, WystawOpinieView(), "opinie", plik)
+    await send_or_edit_panel(kanal, WystawOpiniePanel(), "opinie")
 
 
 # ========================
@@ -572,22 +578,18 @@ async def blacklista_dodaj(interaction: discord.Interaction, nick: str, powod: s
         return
     klucz = nick.lower().lstrip("@")
     CONFIG["blacklista_dane"][klucz] = {
-        "nick": nick,
-        "powod": powod,
+        "nick": nick, "powod": powod,
         "data": datetime.datetime.now().strftime("%d.%m.%Y %H:%M"),
         "dodal": interaction.user.id,
     }
     save_config()
 
-    embed = base_embed("blad", title=pill_title("Blacklista"))
-    embed.add_field(name="Użytkownik", value=nick, inline=False)
-    embed.add_field(name="Powód", value=powod, inline=False)
-    embed.add_field(name="Dodane przez", value=interaction.user.mention, inline=False)
-    set_footer(embed, interaction.guild, "Blacklista")
+    tresc = (f"» **Użytkownik:** {nick}\n» **Data dodania:** {CONFIG['blacklista_dane'][klucz]['data']}\n"
+              f"» **Powód:** {powod}\n» **Dodane przez:** {interaction.user.mention}")
 
     kanal_id = CONFIG["channels"].get("blacklista")
     kanal = interaction.guild.get_channel(kanal_id) if kanal_id else interaction.channel
-    await kanal.send(embed=embed)
+    await send_dynamic_card(kanal, "Blacklista", tresc, "blad")
     if kanal.id != interaction.channel.id:
         await interaction.response.send_message(f"✅ Dodano do blacklisty. Ogłoszenie na {kanal.mention}.", ephemeral=True)
     else:
@@ -617,11 +619,9 @@ async def blacklista_sprawdz(interaction: discord.Interaction, nick: str):
     if not wpis:
         await interaction.response.send_message(f"✅ **{nick}** nie widnieje na blackliście.", ephemeral=True)
         return
-    embed = base_embed("blad", title="💎 Wpis na blackliście")
-    embed.add_field(name="Użytkownik", value=wpis["nick"], inline=False)
-    embed.add_field(name="Powód", value=wpis["powod"], inline=False)
-    embed.add_field(name="Data dodania", value=wpis["data"], inline=False)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    tresc = f"» **Użytkownik:** {wpis['nick']}\n» **Powód:** {wpis['powod']}\n» **Data dodania:** {wpis['data']}"
+    view = PanelView("Wpis Na Blackliście", tresc, "blad")
+    await interaction.response.send_message(view=view, ephemeral=True)
 
 
 @blacklista_group.command(name="lista", description="Wyświetla całą blacklistę")
@@ -631,15 +631,12 @@ async def blacklista_lista(interaction: discord.Interaction):
         await interaction.response.send_message("📋 Blacklista jest obecnie pusta.", ephemeral=True)
         return
     linie = [f"• **{wpis['nick']}** — {wpis['powod']} ({wpis['data']})" for wpis in dane.values()]
-    embed = base_embed("akcent", title="💎 Blacklista — pełna lista", description="\n".join(linie)[:4000])
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    view = PanelView("Blacklista — Pełna Lista", "\n".join(linie)[:3900], "akcent")
+    await interaction.response.send_message(view=view, ephemeral=True)
 
 
 # ========================
 #   PROGRAM PARTNERSKI
-#   Realizator zgłasza nawiązane partnerstwo -> staff je zatwierdza -> naliczana jest wypłata
-#   wg aktualnej, edytowalnej stawki. To tylko ewidencja/statystyki - samą wypłatę (np. BLIK)
-#   przekazujecie ręcznie tak jak ustalicie.
 # ========================
 
 partnerstwo_group = app_commands.Group(name="partnerstwo", description="Program partnerski (realizatorzy)")
@@ -653,13 +650,12 @@ def partner_wpis(user_id: int) -> dict:
     return dane[klucz]
 
 
-class ZostanRealizatoremView(discord.ui.View):
+class ZostanRealizatoremButton(discord.ui.Button):
     def __init__(self):
-        super().__init__(timeout=None)
+        super().__init__(label="Kliknij, aby zostać realizatorem partnerstw!", style=discord.ButtonStyle.primary,
+                          emoji="🔄", custom_id="shopbot:realizator")
 
-    @discord.ui.button(label="Kliknij, aby zostać realizatorem partnerstw!", style=discord.ButtonStyle.primary,
-                        emoji="🔄", custom_id="shopbot:realizator")
-    async def zostan(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def callback(self, interaction: discord.Interaction):
         rola_id = CONFIG["roles"].get("realizator")
         rola = interaction.guild.get_role(rola_id) if rola_id else None
         if not rola:
@@ -675,14 +671,15 @@ class ZostanRealizatoremView(discord.ui.View):
             f"za partnerstwo. Zgłaszaj nawiązane partnerstwa komendą `/partnerstwo zglos`.", ephemeral=True)
 
 
+class ZostanRealizatoremPanel(PanelView):
+    def __init__(self):
+        opis = render(CONFIG["zostan_realizatorem_opis"], stawka=CONFIG["partnerstwo_stawka"],
+                      waluta=CONFIG["partnerstwo_waluta"])
+        super().__init__("Zostań Realizatorem", opis, items=[ZostanRealizatoremButton()], obrazek_typ="partnerstwo")
+
+
 async def wyslij_panel_realizatora(kanal: discord.TextChannel):
-    embed = base_embed("akcent", title=pill_title("Zostań Realizatorem"),
-                        description=render(CONFIG["zostan_realizatorem_opis"],
-                                            stawka=CONFIG["partnerstwo_stawka"],
-                                            waluta=CONFIG["partnerstwo_waluta"]))
-    plik = prepare_embed_image(embed, "partnerstwo")
-    set_footer(embed, kanal.guild, "Partnerstwo")
-    await send_or_edit_panel(kanal, embed, ZostanRealizatoremView(), "realizator", plik)
+    await send_or_edit_panel(kanal, ZostanRealizatoremPanel(), "realizator")
 
 
 @partnerstwo_group.command(name="zglos", description="Zgłasza nawiązane partnerstwo z innym serwerem")
@@ -700,16 +697,13 @@ async def partnerstwo_zglos(interaction: discord.Interaction, partner: str):
     wpis["zarobek"] = round(wpis["zarobek"] + stawka, 2)
     save_config()
 
-    embed = base_embed("sukces", title="🔄 Nawiązano Nowe Partnerstwo!")
-    embed.add_field(name="Kto nawiązał", value=interaction.user.mention, inline=False)
-    embed.add_field(name="Kto został partnerem", value=partner, inline=False)
-    embed.add_field(name="Nawiązał łącznie partnerstw", value=str(wpis["liczba"]))
-    embed.add_field(name="Łącznie zarobił", value=f"{wpis['zarobek']} {CONFIG['partnerstwo_waluta']}")
-    set_footer(embed, interaction.guild, "Partnerstwo")
+    tresc = (f"» **Kto nawiązał:** {interaction.user.mention}\n» **Kto został partnerem:** {partner}\n"
+              f"» **Nawiązał łącznie partnerstw:** {wpis['liczba']}\n"
+              f"» **Łącznie zarobił:** {wpis['zarobek']} {CONFIG['partnerstwo_waluta']}")
 
     kanal_id = CONFIG["channels"].get("partnerstwa")
     kanal = interaction.guild.get_channel(kanal_id) if kanal_id else interaction.channel
-    await kanal.send(embed=embed)
+    await send_dynamic_card(kanal, "Nawiązano Nowe Partnerstwo", tresc, "sukces")
     if kanal.id != interaction.channel.id:
         await interaction.response.send_message(f"✅ Zgłoszono partnerstwo na {kanal.mention}.", ephemeral=True)
     else:
@@ -719,11 +713,11 @@ async def partnerstwo_zglos(interaction: discord.Interaction, partner: str):
 @partnerstwo_group.command(name="statystyki", description="Pokazuje Twoje statystyki w programie partnerskim")
 async def partnerstwo_statystyki(interaction: discord.Interaction):
     wpis = partner_wpis(interaction.user.id)
-    embed = base_embed("akcent", title="💎 Twoje statystyki partnerskie")
-    embed.add_field(name="Nawiązane partnerstwa", value=str(wpis["liczba"]))
-    embed.add_field(name="Łączny zarobek", value=f"{wpis['zarobek']} {CONFIG['partnerstwo_waluta']}")
-    embed.add_field(name="Aktualna stawka", value=f"{CONFIG['partnerstwo_stawka']} {CONFIG['partnerstwo_waluta']}")
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    tresc = (f"» **Nawiązane partnerstwa:** {wpis['liczba']}\n"
+              f"» **Łączny zarobek:** {wpis['zarobek']} {CONFIG['partnerstwo_waluta']}\n"
+              f"» **Aktualna stawka:** {CONFIG['partnerstwo_stawka']} {CONFIG['partnerstwo_waluta']}")
+    view = PanelView("Twoje Statystyki Partnerskie", tresc, "akcent")
+    await interaction.response.send_message(view=view, ephemeral=True)
 
 
 @partnerstwo_group.command(name="ranking", description="Pokazuje ranking najlepszych realizatorów")
@@ -736,8 +730,8 @@ async def partnerstwo_ranking(interaction: discord.Interaction):
     linie = []
     for i, (user_id, wpis) in enumerate(posortowane, start=1):
         linie.append(f"**{i}.** <@{user_id}> — {wpis['liczba']} partnerstw, {wpis['zarobek']} {CONFIG['partnerstwo_waluta']}")
-    embed = base_embed("akcent", title="💎 Ranking realizatorów partnerstw", description="\n".join(linie))
-    await interaction.response.send_message(embed=embed)
+    view = PanelView("Ranking Realizatorów Partnerstw", "\n".join(linie), "akcent")
+    await interaction.response.send_message(view=view)
 
 
 @partnerstwo_group.command(name="stawka", description="[Admin] Ustawia stawkę za jedno partnerstwo")
@@ -749,13 +743,10 @@ async def partnerstwo_stawka_cmd(interaction: discord.Interaction, kwota: float)
     CONFIG["partnerstwo_stawka"] = round(kwota, 2)
     save_config()
 
-    embed = base_embed("akcent", title="💎 Zmieniono Stawkę")
-    embed.add_field(name="Nowa stawka", value=f"{kwota} {CONFIG['partnerstwo_waluta']}")
-    embed.add_field(name="Zmieniona przez", value=interaction.user.mention)
-    set_footer(embed, interaction.guild, "Zostań Realizatorem")
+    tresc = f"» **Nowa stawka:** {kwota} {CONFIG['partnerstwo_waluta']}\n» **Zmieniona przez:** {interaction.user.mention}"
     kanal_id = CONFIG["channels"].get("partnerstwa")
     kanal = interaction.guild.get_channel(kanal_id) if kanal_id else interaction.channel
-    await kanal.send(embed=embed)
+    await send_dynamic_card(kanal, "Zmieniono Stawkę", tresc, "akcent")
     await interaction.response.send_message(f"✅ Ustawiono nową stawkę: {kwota} {CONFIG['partnerstwo_waluta']}.", ephemeral=True)
 
 
@@ -771,12 +762,8 @@ async def on_member_join(member: discord.Member):
     kanal = member.guild.get_channel(kanal_id)
     if not kanal:
         return
-    embed = base_embed("akcent", title=pill_title("Nowa Osoba"),
-                        description=render(CONFIG["nowa_osoba_tresc"], mention=member.mention,
-                                            ilosc=str(member.guild.member_count)))
-    plik = prepare_embed_image(embed, "nowa_osoba", thumb=True)
-    set_footer(embed, member.guild, "Nowa Osoba")
-    await kanal.send(embed=embed, file=plik)
+    tresc = render(CONFIG["nowa_osoba_tresc"], mention=member.mention, ilosc=str(member.guild.member_count))
+    await send_dynamic_card(kanal, "Nowa Osoba", tresc, "akcent", obrazek_typ="nowa_osoba", miniaturka=True)
 
 
 # ========================
@@ -818,7 +805,7 @@ async def konfig_kolor(interaction: discord.Interaction, typ: app_commands.Choic
     await interaction.response.send_message(f"✅ Kolor **{typ.name}** ustawiony na `{hex}`.", ephemeral=True)
 
 
-@konfiguracja_group.command(name="obrazek", description="Ustawia obrazek/banner dla danego panelu")
+@konfiguracja_group.command(name="obrazek", description="Ustawia obrazek dla danego panelu")
 @app_commands.describe(panel="Który panel", plik="Obrazek do przesłania")
 @app_commands.choices(panel=[
     app_commands.Choice(name="Weryfikacja", value="weryfikacja"),
@@ -893,15 +880,14 @@ async def konfig_podglad(interaction: discord.Interaction):
         await interaction.response.send_message("⚠️ Brak uprawnień.", ephemeral=True)
         return
     g = interaction.guild
-    embed = base_embed("akcent", title="💎 Aktualna konfiguracja")
-    embed.add_field(name="Nazwa sklepu", value=CONFIG["nazwa_sklepu"], inline=False)
-    embed.add_field(name="Kolory", value="\n".join(f"{k}: `{v}`" for k, v in CONFIG["colors"].items()), inline=True)
     role_txt = "\n".join(f"{k}: {(g.get_role(v).mention if v and g.get_role(v) else '—')}" for k, v in CONFIG["roles"].items())
-    embed.add_field(name="Role", value=role_txt or "—", inline=True)
     kanal_txt = "\n".join(f"{k}: {(g.get_channel(v).mention if v and g.get_channel(v) else '—')}" for k, v in CONFIG["channels"].items())
-    embed.add_field(name="Kanały", value=kanal_txt or "—", inline=False)
-    embed.add_field(name="Stawka partnerstwa", value=f"{CONFIG['partnerstwo_stawka']} {CONFIG['partnerstwo_waluta']}", inline=False)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    kolor_txt = "\n".join(f"{k}: `{v}`" for k, v in CONFIG["colors"].items())
+    tresc = (f"» **Nazwa sklepu:** {CONFIG['nazwa_sklepu']}\n\n"
+              f"**Kolory:**\n{kolor_txt}\n\n**Role:**\n{role_txt}\n\n**Kanały:**\n{kanal_txt}\n\n"
+              f"**Stawka partnerstwa:** {CONFIG['partnerstwo_stawka']} {CONFIG['partnerstwo_waluta']}")
+    view = PanelView("Aktualna Konfiguracja", tresc, "akcent")
+    await interaction.response.send_message(view=view, ephemeral=True)
 
 
 # ========================
@@ -1013,12 +999,12 @@ bot.tree.add_command(partnerstwo_group)
 
 @bot.event
 async def on_ready():
-    bot.add_view(WeryfikacjaView())
-    bot.add_view(RegulaminView(0))
-    bot.add_view(TicketPanelView())
-    bot.add_view(ZamknijTicketView())
-    bot.add_view(WystawOpinieView())
-    bot.add_view(ZostanRealizatoremView())
+    bot.add_view(build_weryfikacja_panel())
+    bot.add_view(RegulaminNawigacja(0))
+    bot.add_view(TicketPanelWidok())
+    bot.add_view(build_ticket_wiadomosc("_", "_"))
+    bot.add_view(WystawOpiniePanel())
+    bot.add_view(ZostanRealizatoremPanel())
 
     if TEST_GUILD_ID:
         guild_obj = discord.Object(id=TEST_GUILD_ID)

@@ -1,10 +1,17 @@
 # ShopBot — panel weryfikacji, ticketów, opinii, blacklisty i programu partnerskiego
 
+Panele bota wyglądają jak jedna spójna "karta" — kolorowy pasek z boku, nagłówek, treść,
+przyciski i stopka w tej samej ramce (dokładnie tak jak w oryginalnym stylu, na którym się wzorowałeś).
+Osiągnięte to jest przez nowszy system UI Discorda, tzw. **Components V2** (`discord.ui.Container` /
+`TextDisplay` / `Section` / `Separator`), dlatego wymagana jest świeższa wersja `discord.py` — patrz niżej.
+
 ## 1. Instalacja
 
 ```bash
 pip install -r requirements.txt
 ```
+
+**Wymagane discord.py >= 2.6.0** (Components V2 nie działa na starszych wersjach).
 
 ## 2. Uruchomienie
 
