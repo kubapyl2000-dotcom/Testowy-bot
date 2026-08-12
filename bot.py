@@ -173,10 +173,13 @@ def small_caps(text: str) -> str:
     return text.lower().translate(_SMALL_CAPS)
 
 
-def header_line(sekcja: str) -> str:
-    """Nagłówek panelu, np. '💎 ⋅ PIXELMARKET × WERYFIKACJA' w wersji small-caps, pogrubiony."""
+def header_button(sekcja: str) -> discord.ui.ActionRow:
+    """Nagłówek panelu jako nieaktywny przycisk-plakietka (jaśniejsze tło, inny krój niż treść) -
+    dokładnie taki wizualny efekt jak 'pigułka' nagłówka w oryginalnym stylu."""
     nazwa = small_caps(CONFIG.get("nazwa_sklepu", "Shop"))
-    return f"### 💎 ⋅ {nazwa} × {small_caps(sekcja)}"
+    etykieta = f"{nazwa} × {small_caps(sekcja)}"
+    przycisk = discord.ui.Button(label=etykieta, emoji="💎", style=discord.ButtonStyle.secondary, disabled=True)
+    return discord.ui.ActionRow(przycisk)
 
 
 def render(template: str, **kwargs) -> str:
@@ -222,7 +225,7 @@ class PanelView(discord.ui.LayoutView):
         super().__init__(timeout=None)
         self.plik: Optional[discord.File] = None
 
-        dzieci: List[discord.ui.Item] = [discord.ui.TextDisplay(header_line(sekcja))]
+        dzieci: List[discord.ui.Item] = [header_button(sekcja)]
         dzieci.append(discord.ui.Separator())
         dzieci.append(discord.ui.TextDisplay(opis))
 
@@ -364,8 +367,11 @@ class RegulaminNawigacja(discord.ui.LayoutView):
         strony = CONFIG["regulamin_strony"]
         strona_dane = strony[strona]
 
-        naglowek = f"### 💎 ⋅ {small_caps(CONFIG.get('nazwa_sklepu', 'Shop'))} × {small_caps('regulamin')}" \
-                   f" — {small_caps('strona')} {strona + 1}/{len(strony)}"
+        etykieta_naglowka = f"{small_caps(CONFIG.get('nazwa_sklepu', 'Shop'))} × {small_caps('regulamin')}" \
+                            f" — {small_caps('strona')} {strona + 1}/{len(strony)}"
+        naglowek_przycisk = discord.ui.Button(label=etykieta_naglowka, emoji="💎",
+                                               style=discord.ButtonStyle.secondary, disabled=True)
+        naglowek_row = discord.ui.ActionRow(naglowek_przycisk)
         tresc = f"**{strona_dane['tytul']}**\n\n{strona_dane['tresc']}"
 
         poprzednia = discord.ui.Button(label="← Poprzednia", style=discord.ButtonStyle.secondary,
@@ -375,7 +381,7 @@ class RegulaminNawigacja(discord.ui.LayoutView):
         poprzednia.callback = self._callback_factory(-1)
         nastepna.callback = self._callback_factory(1)
 
-        dzieci = [discord.ui.TextDisplay(naglowek), discord.ui.Separator(), discord.ui.TextDisplay(tresc),
+        dzieci = [naglowek_row, discord.ui.Separator(), discord.ui.TextDisplay(tresc),
                   discord.ui.Separator(), discord.ui.ActionRow(poprzednia, nastepna),
                   discord.ui.Separator(spacing=discord.SeparatorSpacing.small),
                   discord.ui.TextDisplay(footer_line("Regulamin"))]
