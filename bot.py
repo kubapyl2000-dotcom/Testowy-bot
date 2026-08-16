@@ -44,6 +44,8 @@ DEFAULT_CONFIG = {
         "statystyki": "",
         "nowa_osoba": "",
         "konkurs": "",
+        "cennik": "",
+        "panel_klienta": "",
     },
 
     "channels": {
@@ -137,6 +139,24 @@ DEFAULT_CONFIG = {
         "» Będziemy super wdzięczni za każdą wystawioną opinię - to buduje zaufanie do naszego sklepu.\n"
         "» Opinię możesz napisać klikając w przycisk **poniżej**."
     ),
+
+    # ---- Cennik ----
+    "cennik_waluta": "PLN",
+    "cennik_kategorie": [],  # [{"nazwa": str, "produkty": [{"nazwa":, "cena":, "opis":}, ...]}, ...]
+
+    # ---- Panel klienta ----
+    "panel_klienta_opis": (
+        "» Tutaj sprawdzisz swoje **statystyki klienta** - ile razy u nas kupiłeś/aś, ile łącznie "
+        "wydałeś/aś oraz jaką posiadasz **rangę klienta**.\n\n"
+        "» Kliknij w przycisk **poniżej**, aby otworzyć swój panel!"
+    ),
+    "klienci_dane": {},  # user_id(str) -> {"zakupy": int, "wydano": float, "historia": [...], "notatka": str}
+    "klient_progi": [
+        {"prog": 0, "nazwa": "🥉 Nowy Klient"},
+        {"prog": 100, "nazwa": "🥈 Stały Klient"},
+        {"prog": 500, "nazwa": "🥇 VIP Klient"},
+        {"prog": 1500, "nazwa": "💎 Elite Klient"},
+    ],
 }
 
 
@@ -228,6 +248,26 @@ def image_file_and_url(typ: str) -> Tuple[Optional[discord.File], Optional[str]]
         return None, None
     nazwa = os.path.basename(sciezka)
     return discord.File(sciezka, filename=nazwa), f"attachment://{nazwa}"
+
+
+def get_klient(user_id: int) -> dict:
+    """Zwraca (i tworzy, jeśli nie istnieją) dane klienta w configu."""
+    klucz = str(user_id)
+    dane = CONFIG["klienci_dane"].setdefault(klucz, {"zakupy": 0, "wydano": 0.0, "historia": [], "notatka": ""})
+    dane.setdefault("historia", [])
+    dane.setdefault("notatka", "")
+    return dane
+
+
+def klient_ranga(wydano: float) -> str:
+    progi = sorted(CONFIG.get("klient_progi", []), key=lambda p: p["prog"])
+    aktualna = progi[0]["nazwa"] if progi else "🥉 Nowy Klient"
+    for prog in progi:
+        if wydano >= prog["prog"]:
+            aktualna = prog["nazwa"]
+        else:
+            break
+    return aktualna
 
 
 class PanelView(discord.ui.LayoutView):
@@ -447,6 +487,173 @@ class EdytujStroneRegulaminuModal(discord.ui.Modal, title="Edytuj stronę regula
 
 
 # ========================
+#   CENNIK
+#   (panel wielostronicowy - jedna kategoria produktów na stronę, tak jak regulamin)
+# ========================
+
+def cennik_tresc_kategorii(kategoria: dict) -> str:
+    waluta = CONFIG.get("cennik_waluta", "PLN")
+    produkty = kategoria.get("produkty", [])
+    if not produkty:
+        return "*Brak produktów w tej kategorii.*"
+    linie = []
+    for p in produkty:
+        linie.append(f"**{p['nazwa']}** — `{p['cena']} {waluta}`")
+        if p.get("opis"):
+            linie.append(p["opis"])
+        linie.append("")
+    return "\n".join(linie).rstrip()
+
+
+class CennikProduktSelect(discord.ui.Select):
+    def __init__(self, kategoria_index: int):
+        self.kategoria_index = kategoria_index
+        kategoria = CONFIG["cennik_kategorie"][kategoria_index]
+        waluta = CONFIG.get("cennik_waluta", "PLN")
+        produkty = kategoria.get("produkty", [])
+
+        if produkty:
+            opcje = [
+                discord.SelectOption(
+                    label=p["nazwa"][:100],
+                    description=(f"{p['cena']} {waluta}" + (f" — {p['opis']}" if p.get("opis") else ""))[:100],
+                    value=str(i),
+                )
+                for i, p in enumerate(produkty)
+            ]
+            placeholder = "Wybierz produkt, który chcesz kupić..."
+        else:
+            opcje = [discord.SelectOption(label="Brak produktów w tej kategorii", value="brak")]
+            placeholder = "Ta kategoria jest jeszcze pusta"
+
+        super().__init__(placeholder=placeholder, options=opcje,
+                          custom_id=f"shopbot:cennik:produkt:{kategoria_index}",
+                          min_values=1, max_values=1, disabled=not produkty)
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "brak":
+            await interaction.response.send_message("⚠️ Ta kategoria nie ma jeszcze produktów.", ephemeral=True)
+            return
+        kategoria = CONFIG["cennik_kategorie"][self.kategoria_index]
+        produkt = kategoria["produkty"][int(self.values[0])]
+        waluta = CONFIG.get("cennik_waluta", "PLN")
+        tresc = f"🛒 **Wybrany produkt:** {produkt['nazwa']} — `{produkt['cena']} {waluta}`"
+        if produkt.get("opis"):
+            tresc += f"\n{produkt['opis']}"
+        await utworz_ticket(interaction, tresc)
+
+
+class CennikWrocButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="← Wróć do kategorii", style=discord.ButtonStyle.secondary,
+                          custom_id="shopbot:cennik:wroc")
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(view=CennikGlowny())
+
+
+class CennikKategoriaWidok(discord.ui.LayoutView):
+    """Widok pojedynczej kategorii - lista produktów + select do wyboru produktu, który
+    od razu otwiera ticket zakupowy, dokładnie tak jak select w panelu ticketów."""
+
+    def __init__(self, kategoria_index: int):
+        super().__init__(timeout=None)
+        self.plik = None
+        kategoria = CONFIG["cennik_kategorie"][kategoria_index]
+        nazwa = CONFIG.get("nazwa_sklepu", "Shop").upper()
+
+        naglowek = discord.ui.TextDisplay(f"```\n💎 CENNIK {nazwa} - {kategoria['nazwa'].upper()}\n```")
+        tresc = cytuj(cennik_tresc_kategorii(kategoria))
+
+        dzieci = [naglowek, discord.ui.Separator(), discord.ui.TextDisplay(tresc), discord.ui.Separator(),
+                  discord.ui.ActionRow(CennikProduktSelect(kategoria_index)),
+                  discord.ui.ActionRow(CennikWrocButton()),
+                  discord.ui.Separator(spacing=discord.SeparatorSpacing.small),
+                  discord.ui.TextDisplay(footer_line("Cennik"))]
+        self.container = discord.ui.Container(*dzieci, accent_color=get_color("akcent"))
+        self.add_item(self.container)
+
+
+class CennikKategoriaSelect(discord.ui.Select):
+    def __init__(self):
+        kategorie = CONFIG["cennik_kategorie"]
+        opcje = [
+            discord.SelectOption(label=k["nazwa"][:100],
+                                  description=f"{len(k.get('produkty', []))} produktów", value=str(i))
+            for i, k in enumerate(kategorie)
+        ]
+        super().__init__(placeholder="Wybierz kategorię produktów...", options=opcje,
+                          custom_id="shopbot:cennik:kategoria", min_values=1, max_values=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.edit_message(view=CennikKategoriaWidok(int(self.values[0])))
+
+
+class CennikGlowny(PanelView):
+    """Główny, stały panel cennika - w pełni interaktywny (jak panel ticketów): wybierasz
+    kategorię z listy, potem produkt, a bot od razu otwiera ticket zakupowy."""
+
+    def __init__(self):
+        kategorie = CONFIG["cennik_kategorie"]
+        if kategorie:
+            opis = ("» Wybierz **kategorię** produktów z listy poniżej, żeby zobaczyć dostępne produkty i ceny.\n\n"
+                    "» Gdy wybierzesz konkretny produkt, bot **od razu otworzy Ci ticket zakupowy**!")
+            items = [CennikKategoriaSelect()]
+        else:
+            opis = "*Cennik jest obecnie pusty. Administracja może dodać kategorie i produkty komendą `/cennik dodaj_kategorie`.*"
+            items = None
+        super().__init__("Cennik", opis, items=items, obrazek_typ="cennik", miniaturka=True)
+
+
+async def wyslij_panel_cennika(kanal: discord.TextChannel):
+    await send_or_edit_panel(kanal, CennikGlowny(), "cennik")
+
+
+class DodajProduktModal(discord.ui.Modal, title="Dodaj produkt do cennika"):
+    nazwa = discord.ui.TextInput(label="Nazwa produktu", max_length=100, placeholder="np. Konto Premium 30 dni")
+    cena = discord.ui.TextInput(label="Cena", max_length=20, placeholder="np. 19.99")
+    opis = discord.ui.TextInput(label="Opis (opcjonalnie)", style=discord.TextStyle.paragraph,
+                                 max_length=500, required=False)
+
+    def __init__(self, kategoria_index: int):
+        super().__init__()
+        self.kategoria_index = kategoria_index
+
+    async def on_submit(self, interaction: discord.Interaction):
+        kategoria = CONFIG["cennik_kategorie"][self.kategoria_index]
+        kategoria.setdefault("produkty", []).append(
+            {"nazwa": str(self.nazwa), "cena": str(self.cena), "opis": str(self.opis)})
+        save_config()
+        await interaction.response.send_message(
+            f"✅ Dodano produkt **{self.nazwa}** do kategorii **{kategoria['nazwa']}**. "
+            f"Użyj `/cennik wyslij`, aby odświeżyć panel.", ephemeral=True)
+
+
+class EdytujProduktModal(discord.ui.Modal, title="Edytuj produkt"):
+    def __init__(self, kategoria_index: int, produkt_index: int):
+        super().__init__()
+        self.kategoria_index = kategoria_index
+        self.produkt_index = produkt_index
+        produkt = CONFIG["cennik_kategorie"][kategoria_index]["produkty"][produkt_index]
+        self.nazwa = discord.ui.TextInput(label="Nazwa produktu", max_length=100, default=produkt["nazwa"])
+        self.cena = discord.ui.TextInput(label="Cena", max_length=20, default=produkt["cena"])
+        self.opis = discord.ui.TextInput(label="Opis (opcjonalnie)", style=discord.TextStyle.paragraph,
+                                          max_length=500, required=False, default=produkt.get("opis", ""))
+        self.add_item(self.nazwa)
+        self.add_item(self.cena)
+        self.add_item(self.opis)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        kategoria = CONFIG["cennik_kategorie"][self.kategoria_index]
+        kategoria["produkty"][self.produkt_index] = {
+            "nazwa": str(self.nazwa), "cena": str(self.cena), "opis": str(self.opis)}
+        save_config()
+        await interaction.response.send_message(
+            f"✅ Zaktualizowano produkt **{self.nazwa}**. Użyj `/cennik wyslij`, aby odświeżyć panel.",
+            ephemeral=True)
+
+
+# ========================
 #   TICKETY
 # ========================
 
@@ -473,6 +680,46 @@ def build_ticket_wiadomosc(mention: str, rola_mention: str) -> PanelView:
     return PanelView("Ticket", tresc, items=[ZamknijTicketButton()])
 
 
+async def utworz_ticket(interaction: discord.Interaction, tresc_startowa: Optional[str] = None,
+                         powod: str = "Nowy ticket") -> Optional[discord.TextChannel]:
+    """Tworzy prywatny kanał-ticket dla użytkownika. Używane zarówno przez panel ticketów,
+    jak i przez cennik (wybór produktu od razu otwiera ticket zakupowy)."""
+    guild = interaction.guild
+    kategoria_id = CONFIG.get("ticket_category_id")
+    kategoria = guild.get_channel(kategoria_id) if kategoria_id else None
+
+    istniejacy = discord.utils.get(guild.text_channels, name=f"ticket-{interaction.user.name}".lower()[:100])
+    if istniejacy:
+        await interaction.response.send_message(f"⚠️ Masz już otwarty ticket: {istniejacy.mention}", ephemeral=True)
+        return None
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+        guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True),
+    }
+    staff_id = CONFIG["roles"].get("staff")
+    staff_rola = guild.get_role(staff_id) if staff_id else None
+    if staff_rola:
+        overwrites[staff_rola] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
+
+    kanal = await guild.create_text_channel(
+        name=f"ticket-{interaction.user.name}"[:100],
+        category=kategoria,
+        overwrites=overwrites,
+        reason=f"{powod} od {interaction.user}",
+    )
+
+    view = build_ticket_wiadomosc(interaction.user.mention, staff_rola.mention if staff_rola else "administracją")
+    await kanal.send(content=f"{interaction.user.mention}" + (f" {staff_rola.mention}" if staff_rola else ""),
+                      view=view)
+    if tresc_startowa:
+        await kanal.send(tresc_startowa)
+
+    await interaction.response.send_message(f"✅ Utworzono Twój ticket: {kanal.mention}", ephemeral=True)
+    return kanal
+
+
 class TicketKategoriaSelect(discord.ui.Select):
     def __init__(self):
         opcje = [
@@ -484,37 +731,7 @@ class TicketKategoriaSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         klucz = self.values[0]
-        guild = interaction.guild
-        kategoria_id = CONFIG.get("ticket_category_id")
-        kategoria = guild.get_channel(kategoria_id) if kategoria_id else None
-
-        istniejacy = discord.utils.get(guild.text_channels, name=f"ticket-{interaction.user.name}".lower()[:100])
-        if istniejacy:
-            await interaction.response.send_message(f"⚠️ Masz już otwarty ticket: {istniejacy.mention}", ephemeral=True)
-            return
-
-        overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=False),
-            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
-            guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True),
-        }
-        staff_id = CONFIG["roles"].get("staff")
-        staff_rola = guild.get_role(staff_id) if staff_id else None
-        if staff_rola:
-            overwrites[staff_rola] = discord.PermissionOverwrite(view_channel=True, send_messages=True)
-
-        kanal = await guild.create_text_channel(
-            name=f"ticket-{interaction.user.name}"[:100],
-            category=kategoria,
-            overwrites=overwrites,
-            reason=f"Nowy ticket ({klucz}) od {interaction.user}",
-        )
-
-        view = build_ticket_wiadomosc(interaction.user.mention, staff_rola.mention if staff_rola else "administracją")
-        await kanal.send(content=f"{interaction.user.mention}" + (f" {staff_rola.mention}" if staff_rola else ""),
-                          view=view)
-
-        await interaction.response.send_message(f"✅ Utworzono Twój ticket: {kanal.mention}", ephemeral=True)
+        await utworz_ticket(interaction, powod=f"Nowy ticket ({klucz})")
 
 
 class TicketPanelWidok(PanelView):
@@ -581,6 +798,119 @@ class WystawOpiniePanel(PanelView):
 
 async def wyslij_panel_opinii(kanal: discord.TextChannel):
     await send_or_edit_panel(kanal, WystawOpiniePanel(), "opinie")
+
+
+# ========================
+#   PANEL KLIENTA
+# ========================
+
+def panel_klienta_tresc(member: discord.abc.User, dane: dict) -> str:
+    wydano = float(dane.get("wydano", 0.0))
+    waluta = CONFIG.get("cennik_waluta", "PLN")
+    historia = dane.get("historia", [])
+    if historia:
+        ostatnie = "\n".join(f"• {wpis['opis']} — `{wpis['kwota']} {waluta}` ({wpis['data']})"
+                              for wpis in historia[-5:][::-1])
+    else:
+        ostatnie = "*Brak zarejestrowanych zakupów.*"
+
+    return (
+        f"» **Klient:** {member.mention}\n"
+        f"» **Ranga:** {klient_ranga(wydano)}\n\n"
+        f"🛒 **Liczba zakupów:** {dane.get('zakupy', 0)}\n"
+        f"💰 **Łącznie wydano:** `{wydano:.2f} {waluta}`\n\n"
+        f"**Ostatnie zakupy:**\n{ostatnie}"
+    )
+
+
+def build_panel_klienta_karta(member: discord.abc.User) -> "PanelView":
+    dane = get_klient(member.id)
+    return PanelView("Panel Klienta", panel_klienta_tresc(member, dane), "akcent")
+
+
+def build_panel_klienta_historia(member: discord.abc.User) -> "PanelView":
+    dane = get_klient(member.id)
+    waluta = CONFIG.get("cennik_waluta", "PLN")
+    historia = dane.get("historia", [])
+    if historia:
+        tresc = "\n".join(
+            f"{i}. {wpis['opis']} — `{wpis['kwota']} {waluta}` ({wpis['data']})"
+            for i, wpis in enumerate(historia[-15:][::-1], start=1)
+        )
+    else:
+        tresc = "*Brak zarejestrowanych zakupów.*"
+    return PanelView("Pełna Historia Zakupów", tresc, "akcent")
+
+
+def build_klient_ranking_karta() -> "PanelView":
+    waluta = CONFIG.get("cennik_waluta", "PLN")
+    posortowani = sorted(CONFIG["klienci_dane"].items(), key=lambda kv: kv[1].get("wydano", 0), reverse=True)[:10]
+    if not posortowani:
+        tresc = "*Brak jeszcze żadnych klientów w bazie.*"
+    else:
+        medale = ["🥇", "🥈", "🥉"]
+        linie = []
+        for i, (user_id, wpis) in enumerate(posortowani):
+            miejsce = medale[i] if i < len(medale) else f"{i + 1}."
+            linie.append(f"{miejsce} <@{user_id}> — `{wpis.get('wydano', 0):.2f} {waluta}` "
+                         f"({wpis.get('zakupy', 0)} zakupów)")
+        tresc = "\n".join(linie)
+    return PanelView("Ranking Klientów", tresc, "akcent")
+
+
+def build_klient_progi_karta() -> "PanelView":
+    progi = sorted(CONFIG["klient_progi"], key=lambda p: p["prog"])
+    waluta = CONFIG.get("cennik_waluta", "PLN")
+    if not progi:
+        tresc = "*Nie ustawiono jeszcze żadnych progów rang.*"
+    else:
+        tresc = "\n".join(f"{p['nazwa']} — od `{p['prog']} {waluta}`" for p in progi)
+    return PanelView("Progi Rang Klienta", tresc, "akcent")
+
+
+class PanelKlientaSelect(discord.ui.Select):
+    """W pełni interaktywne menu panelu klienta - jak select w panelu ticketów: wybierasz
+    opcję z listy i bot od razu pokazuje Ci wynik (efemerycznie, widzisz tylko Ty)."""
+
+    def __init__(self):
+        opcje = [
+            discord.SelectOption(label="Moje statystyki", description="Zakupy, wydana kwota, ranga",
+                                  value="statystyki", emoji="📊"),
+            discord.SelectOption(label="Pełna historia zakupów", description="Do 15 ostatnich zakupów",
+                                  value="historia", emoji="🧾"),
+            discord.SelectOption(label="Ranking klientów", description="Top 10 najlepszych klientów",
+                                  value="ranking", emoji="🏆"),
+            discord.SelectOption(label="Progi rang", description="Od jakiej kwoty jaka ranga",
+                                  value="progi", emoji="🎖️"),
+        ]
+        super().__init__(placeholder="Wybierz, co chcesz sprawdzić...", options=opcje,
+                          custom_id="shopbot:panel_klienta:select", min_values=1, max_values=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        wybor = self.values[0]
+        if wybor == "statystyki":
+            view = build_panel_klienta_karta(interaction.user)
+        elif wybor == "historia":
+            view = build_panel_klienta_historia(interaction.user)
+        elif wybor == "ranking":
+            view = build_klient_ranking_karta()
+        else:
+            view = build_klient_progi_karta()
+
+        if view.plik:
+            await interaction.response.send_message(view=view, file=view.plik, ephemeral=True)
+        else:
+            await interaction.response.send_message(view=view, ephemeral=True)
+
+
+class PanelKlientaGlowny(PanelView):
+    def __init__(self):
+        super().__init__("Panel Klienta", render(CONFIG["panel_klienta_opis"]), items=[PanelKlientaSelect()],
+                          obrazek_typ="panel_klienta", miniaturka=True)
+
+
+async def wyslij_panel_klienta(kanal: discord.TextChannel):
+    await send_or_edit_panel(kanal, PanelKlientaGlowny(), "panel_klienta")
 
 
 # ========================
@@ -1141,6 +1471,8 @@ async def konfig_kolor(interaction: discord.Interaction, typ: app_commands.Choic
     app_commands.Choice(name="Partnerstwo", value="partnerstwo"),
     app_commands.Choice(name="Nowa osoba", value="nowa_osoba"),
     app_commands.Choice(name="Konkurs", value="konkurs"),
+    app_commands.Choice(name="Cennik", value="cennik"),
+    app_commands.Choice(name="Panel klienta", value="panel_klienta"),
 ])
 async def konfig_obrazek(interaction: discord.Interaction, panel: app_commands.Choice[str], plik: discord.Attachment):
     if not is_admin(interaction):
@@ -1213,7 +1545,9 @@ async def konfig_podglad(interaction: discord.Interaction):
     kolor_txt = "\n".join(f"{k}: `{v}`" for k, v in CONFIG["colors"].items())
     tresc = (f"» **Nazwa sklepu:** {CONFIG['nazwa_sklepu']}\n\n"
               f"**Kolory:**\n{kolor_txt}\n\n**Role:**\n{role_txt}\n\n**Kanały:**\n{kanal_txt}\n\n"
-              f"**Stawka partnerstwa:** {CONFIG['partnerstwo_stawka']} {CONFIG['partnerstwo_waluta']}")
+              f"**Stawka partnerstwa:** {CONFIG['partnerstwo_stawka']} {CONFIG['partnerstwo_waluta']}\n\n"
+              f"**Cennik:** {len(CONFIG['cennik_kategorie'])} kategorii, waluta `{CONFIG['cennik_waluta']}`\n"
+              f"**Klienci w bazie:** {len(CONFIG['klienci_dane'])}")
     view = PanelView("Aktualna Konfiguracja", tresc, "akcent")
     await interaction.response.send_message(view=view, ephemeral=True)
 
@@ -1272,6 +1606,234 @@ async def regulamin_wyslij(interaction: discord.Interaction, kanal: discord.Text
 
 
 # ========================
+#   /cennik  — zarządzanie cennikiem (kategorie + produkty)
+# ========================
+
+cennik_group = app_commands.Group(name="cennik", description="Zarządzanie cennikiem sklepu")
+
+
+@cennik_group.command(name="dodaj_kategorie", description="Dodaje nową kategorię produktów do cennika")
+@app_commands.describe(nazwa="Nazwa kategorii, np. Konta Premium")
+async def cennik_dodaj_kategorie(interaction: discord.Interaction, nazwa: str):
+    if not is_admin(interaction):
+        await interaction.response.send_message("⚠️ Brak uprawnień.", ephemeral=True)
+        return
+    CONFIG["cennik_kategorie"].append({"nazwa": nazwa, "produkty": []})
+    save_config()
+    await interaction.response.send_message(
+        f"✅ Dodano kategorię **{nazwa}** ({len(CONFIG['cennik_kategorie'])} kategorii łącznie). "
+        f"Użyj `/cennik dodaj_produkt`, aby dodać do niej produkty.", ephemeral=True)
+
+
+@cennik_group.command(name="usun_kategorie", description="Usuwa kategorię produktów z cennika")
+@app_commands.describe(kategoria="Numer kategorii (1, 2, 3...)")
+async def cennik_usun_kategorie(interaction: discord.Interaction, kategoria: int):
+    if not is_admin(interaction):
+        await interaction.response.send_message("⚠️ Brak uprawnień.", ephemeral=True)
+        return
+    kategorie = CONFIG["cennik_kategorie"]
+    if kategoria < 1 or kategoria > len(kategorie):
+        await interaction.response.send_message(f"⚠️ Cennik ma tylko {len(kategorie)} kategorii.", ephemeral=True)
+        return
+    usunieta = kategorie.pop(kategoria - 1)
+    save_config()
+    await interaction.response.send_message(f"✅ Usunięto kategorię **{usunieta['nazwa']}**.", ephemeral=True)
+
+
+@cennik_group.command(name="dodaj_produkt", description="Dodaje nowy produkt do wybranej kategorii cennika")
+@app_commands.describe(kategoria="Numer kategorii (1, 2, 3...)")
+async def cennik_dodaj_produkt(interaction: discord.Interaction, kategoria: int):
+    if not is_admin(interaction):
+        await interaction.response.send_message("⚠️ Brak uprawnień.", ephemeral=True)
+        return
+    kategorie = CONFIG["cennik_kategorie"]
+    if kategoria < 1 or kategoria > len(kategorie):
+        await interaction.response.send_message(
+            f"⚠️ Cennik ma tylko {len(kategorie)} kategorii. Najpierw użyj `/cennik dodaj_kategorie`.", ephemeral=True)
+        return
+    await interaction.response.send_modal(DodajProduktModal(kategoria - 1))
+
+
+@cennik_group.command(name="edytuj_produkt", description="Edytuje istniejący produkt w cenniku")
+@app_commands.describe(kategoria="Numer kategorii (1, 2, 3...)", produkt="Numer produktu w tej kategorii (1, 2, 3...)")
+async def cennik_edytuj_produkt(interaction: discord.Interaction, kategoria: int, produkt: int):
+    if not is_admin(interaction):
+        await interaction.response.send_message("⚠️ Brak uprawnień.", ephemeral=True)
+        return
+    kategorie = CONFIG["cennik_kategorie"]
+    if kategoria < 1 or kategoria > len(kategorie):
+        await interaction.response.send_message(f"⚠️ Cennik ma tylko {len(kategorie)} kategorii.", ephemeral=True)
+        return
+    produkty = kategorie[kategoria - 1]["produkty"]
+    if produkt < 1 or produkt > len(produkty):
+        await interaction.response.send_message(f"⚠️ Ta kategoria ma tylko {len(produkty)} produktów.", ephemeral=True)
+        return
+    await interaction.response.send_modal(EdytujProduktModal(kategoria - 1, produkt - 1))
+
+
+@cennik_group.command(name="usun_produkt", description="Usuwa produkt z cennika")
+@app_commands.describe(kategoria="Numer kategorii (1, 2, 3...)", produkt="Numer produktu w tej kategorii (1, 2, 3...)")
+async def cennik_usun_produkt(interaction: discord.Interaction, kategoria: int, produkt: int):
+    if not is_admin(interaction):
+        await interaction.response.send_message("⚠️ Brak uprawnień.", ephemeral=True)
+        return
+    kategorie = CONFIG["cennik_kategorie"]
+    if kategoria < 1 or kategoria > len(kategorie):
+        await interaction.response.send_message(f"⚠️ Cennik ma tylko {len(kategorie)} kategorii.", ephemeral=True)
+        return
+    produkty = kategorie[kategoria - 1]["produkty"]
+    if produkt < 1 or produkt > len(produkty):
+        await interaction.response.send_message(f"⚠️ Ta kategoria ma tylko {len(produkty)} produktów.", ephemeral=True)
+        return
+    usuniety = produkty.pop(produkt - 1)
+    save_config()
+    await interaction.response.send_message(f"✅ Usunięto produkt **{usuniety['nazwa']}**.", ephemeral=True)
+
+
+@cennik_group.command(name="waluta", description="Ustawia walutę wyświetlaną w cenniku i panelu klienta")
+@app_commands.describe(waluta="Skrót waluty, np. PLN, USD, EUR")
+async def cennik_waluta(interaction: discord.Interaction, waluta: str):
+    if not is_admin(interaction):
+        await interaction.response.send_message("⚠️ Brak uprawnień.", ephemeral=True)
+        return
+    CONFIG["cennik_waluta"] = waluta.upper()
+    save_config()
+    await interaction.response.send_message(f"✅ Waluta ustawiona na **{waluta.upper()}**.", ephemeral=True)
+
+
+@cennik_group.command(name="wyslij", description="Wysyła / odświeża panel cennika na wskazanym kanale")
+@app_commands.describe(kanal="Kanał, na który wysłać panel")
+async def cennik_wyslij(interaction: discord.Interaction, kanal: discord.TextChannel):
+    if not is_admin(interaction):
+        await interaction.response.send_message("⚠️ Brak uprawnień.", ephemeral=True)
+        return
+    await wyslij_panel_cennika(kanal)
+    await interaction.response.send_message(f"✅ Panel cennika wysłany/odświeżony na {kanal.mention}.", ephemeral=True)
+
+
+# ========================
+#   /klient  — zarządzanie panelem klienta (zakupy, rangi, progi)
+# ========================
+
+klient_group = app_commands.Group(name="klient", description="Zarządzanie danymi klientów (panel klienta)")
+
+
+@klient_group.command(name="zakup", description="Rejestruje zakup klienta (dolicza do jego statystyk)")
+@app_commands.describe(uzytkownik="Klient", kwota="Kwota zakupu", opis="Krótki opis zakupu, np. nazwa produktu")
+async def klient_zakup(interaction: discord.Interaction, uzytkownik: discord.Member, kwota: float,
+                        opis: str = "Zakup"):
+    if not is_staff(interaction):
+        await interaction.response.send_message("⚠️ Nie masz uprawnień do tej komendy.", ephemeral=True)
+        return
+    dane = get_klient(uzytkownik.id)
+    dane["zakupy"] = dane.get("zakupy", 0) + 1
+    dane["wydano"] = round(dane.get("wydano", 0.0) + kwota, 2)
+    dane["historia"].append({
+        "opis": opis, "kwota": kwota,
+        "data": datetime.datetime.now().strftime("%d.%m.%Y %H:%M"),
+    })
+    save_config()
+    await interaction.response.send_message(
+        f"✅ Zarejestrowano zakup dla {uzytkownik.mention}: `{kwota} {CONFIG['cennik_waluta']}` ({opis}). "
+        f"Łącznie wydał/a: `{dane['wydano']} {CONFIG['cennik_waluta']}` — ranga: {klient_ranga(dane['wydano'])}.",
+        ephemeral=True)
+
+
+@klient_group.command(name="ustaw", description="Ręcznie ustawia statystyki klienta (nadpisuje aktualne dane)")
+@app_commands.describe(uzytkownik="Klient", zakupy="Liczba zakupów", wydano="Łączna wydana kwota")
+async def klient_ustaw(interaction: discord.Interaction, uzytkownik: discord.Member, zakupy: int, wydano: float):
+    if not is_staff(interaction):
+        await interaction.response.send_message("⚠️ Nie masz uprawnień do tej komendy.", ephemeral=True)
+        return
+    dane = get_klient(uzytkownik.id)
+    dane["zakupy"] = zakupy
+    dane["wydano"] = round(wydano, 2)
+    save_config()
+    await interaction.response.send_message(
+        f"✅ Zaktualizowano dane {uzytkownik.mention}: {zakupy} zakupów, `{wydano} {CONFIG['cennik_waluta']}`.",
+        ephemeral=True)
+
+
+@klient_group.command(name="reset", description="Zeruje statystyki i historię zakupów klienta")
+@app_commands.describe(uzytkownik="Klient")
+async def klient_reset(interaction: discord.Interaction, uzytkownik: discord.Member):
+    if not is_staff(interaction):
+        await interaction.response.send_message("⚠️ Nie masz uprawnień do tej komendy.", ephemeral=True)
+        return
+    CONFIG["klienci_dane"][str(uzytkownik.id)] = {"zakupy": 0, "wydano": 0.0, "historia": [], "notatka": ""}
+    save_config()
+    await interaction.response.send_message(f"✅ Zresetowano dane klienta {uzytkownik.mention}.", ephemeral=True)
+
+
+@klient_group.command(name="info", description="Pokazuje panel klienta wybranej osoby")
+@app_commands.describe(uzytkownik="Klient")
+async def klient_info(interaction: discord.Interaction, uzytkownik: discord.Member):
+    if not is_staff(interaction):
+        await interaction.response.send_message("⚠️ Nie masz uprawnień do tej komendy.", ephemeral=True)
+        return
+    view = build_panel_klienta_karta(uzytkownik)
+    if view.plik:
+        await interaction.response.send_message(view=view, file=view.plik, ephemeral=True)
+    else:
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+
+@klient_group.command(name="moj", description="Pokazuje Twój własny panel klienta")
+async def klient_moj(interaction: discord.Interaction):
+    view = build_panel_klienta_karta(interaction.user)
+    if view.plik:
+        await interaction.response.send_message(view=view, file=view.plik, ephemeral=True)
+    else:
+        await interaction.response.send_message(view=view, ephemeral=True)
+
+
+@klient_group.command(name="prog_dodaj", description="Dodaje / nadpisuje próg rangi klienta")
+@app_commands.describe(kwota="Od jakiej wydanej kwoty obowiązuje ta ranga", nazwa="Nazwa rangi, np. 🥇 VIP Klient")
+async def klient_prog_dodaj(interaction: discord.Interaction, kwota: float, nazwa: str):
+    if not is_admin(interaction):
+        await interaction.response.send_message("⚠️ Brak uprawnień.", ephemeral=True)
+        return
+    progi = CONFIG["klient_progi"]
+    for prog in progi:
+        if prog["prog"] == kwota:
+            prog["nazwa"] = nazwa
+            save_config()
+            await interaction.response.send_message(f"✅ Zaktualizowano próg `{kwota}` na **{nazwa}**.", ephemeral=True)
+            return
+    progi.append({"prog": kwota, "nazwa": nazwa})
+    save_config()
+    await interaction.response.send_message(f"✅ Dodano nowy próg rangi: od `{kwota}` — **{nazwa}**.", ephemeral=True)
+
+
+@klient_group.command(name="prog_usun", description="Usuwa próg rangi klienta")
+@app_commands.describe(numer="Numer progu z listy `/klient prog_lista` (1, 2, 3...)")
+async def klient_prog_usun(interaction: discord.Interaction, numer: int):
+    if not is_admin(interaction):
+        await interaction.response.send_message("⚠️ Brak uprawnień.", ephemeral=True)
+        return
+    progi = sorted(CONFIG["klient_progi"], key=lambda p: p["prog"])
+    if numer < 1 or numer > len(progi):
+        await interaction.response.send_message(f"⚠️ Jest tylko {len(progi)} progów.", ephemeral=True)
+        return
+    usuniety = progi[numer - 1]
+    CONFIG["klient_progi"].remove(usuniety)
+    save_config()
+    await interaction.response.send_message(f"✅ Usunięto próg **{usuniety['nazwa']}**.", ephemeral=True)
+
+
+@klient_group.command(name="prog_lista", description="Wyświetla wszystkie progi rang klienta")
+async def klient_prog_lista(interaction: discord.Interaction):
+    progi = sorted(CONFIG["klient_progi"], key=lambda p: p["prog"])
+    waluta = CONFIG.get("cennik_waluta", "PLN")
+    if not progi:
+        await interaction.response.send_message("📋 Nie ustawiono jeszcze żadnych progów rang.", ephemeral=True)
+        return
+    linie = [f"{i}. od `{p['prog']} {waluta}` — {p['nazwa']}" for i, p in enumerate(progi, start=1)]
+    view = PanelView("Progi Rang Klienta", "\n".join(linie), "akcent")
+    await interaction.response.send_message(view=view, ephemeral=True)
+
+
+# ========================
 #   /panel  — wysyłanie / odświeżanie pozostałych paneli
 # ========================
 
@@ -1314,6 +1876,15 @@ async def panel_realizator(interaction: discord.Interaction, kanal: discord.Text
     await interaction.response.send_message(f"✅ Panel realizatora wysłany/odświeżony na {kanal.mention}.", ephemeral=True)
 
 
+@panel_group.command(name="klient", description="Wysyła / odświeża panel klienta (przycisk 'sprawdź statystyki')")
+async def panel_klient(interaction: discord.Interaction, kanal: discord.TextChannel):
+    if not is_admin(interaction):
+        await interaction.response.send_message("⚠️ Brak uprawnień.", ephemeral=True)
+        return
+    await wyslij_panel_klienta(kanal)
+    await interaction.response.send_message(f"✅ Panel klienta wysłany/odświeżony na {kanal.mention}.", ephemeral=True)
+
+
 # ========================
 #   /pomoc  — panel ze wszystkimi komendami bota
 # ========================
@@ -1334,6 +1905,31 @@ POMOC_KATEGORIE = {
             "`/regulamin edytuj_strone <numer>` — Edytuje istniejącą stronę. *(Admin)*\n"
             "`/regulamin usun_strone <numer>` — Usuwa stronę regulaminu. *(Admin)*\n"
             "`/regulamin wyslij <kanal>` — Wysyła / odświeża panel regulaminu. *(Admin)*"
+        ),
+    },
+    "cennik": {
+        "etykieta": "💵 Cennik",
+        "tresc": (
+            "`/cennik dodaj_kategorie <nazwa>` — Dodaje nową kategorię produktów. *(Admin)*\n"
+            "`/cennik usun_kategorie <numer>` — Usuwa kategorię produktów. *(Admin)*\n"
+            "`/cennik dodaj_produkt <kategoria>` — Dodaje produkt (formularz). *(Admin)*\n"
+            "`/cennik edytuj_produkt <kategoria> <produkt>` — Edytuje produkt (formularz). *(Admin)*\n"
+            "`/cennik usun_produkt <kategoria> <produkt>` — Usuwa produkt. *(Admin)*\n"
+            "`/cennik waluta <waluta>` — Ustawia walutę cennika. *(Admin)*\n"
+            "`/cennik wyslij <kanal>` — Wysyła / odświeża panel cennika. *(Admin)*"
+        ),
+    },
+    "klienci": {
+        "etykieta": "🪪 Panel Klienta",
+        "tresc": (
+            "`/klient moj` — Pokazuje Twój własny panel klienta.\n"
+            "`/klient info <użytkownik>` — Pokazuje panel klienta wybranej osoby. *(Staff)*\n"
+            "`/klient zakup <użytkownik> <kwota> [opis]` — Rejestruje zakup klienta. *(Staff)*\n"
+            "`/klient ustaw <użytkownik> <zakupy> <wydano>` — Ręcznie ustawia statystyki. *(Staff)*\n"
+            "`/klient reset <użytkownik>` — Zeruje dane klienta. *(Staff)*\n"
+            "`/klient prog_dodaj <kwota> <nazwa>` — Dodaje/edytuje próg rangi klienta. *(Admin)*\n"
+            "`/klient prog_usun <numer>` — Usuwa próg rangi klienta. *(Admin)*\n"
+            "`/klient prog_lista` — Wyświetla wszystkie progi rang."
         ),
     },
     "blacklista": {
@@ -1370,7 +1966,8 @@ POMOC_KATEGORIE = {
             "`/panel weryfikacja <kanal>` — Wysyła / odświeża panel weryfikacji. *(Admin)*\n"
             "`/panel tickety <kanal>` — Wysyła / odświeża panel ticketów. *(Admin)*\n"
             "`/panel opinie <kanal>` — Wysyła / odświeża panel opinii. *(Admin)*\n"
-            "`/panel realizator <kanal>` — Wysyła / odświeża panel realizatora. *(Admin)*"
+            "`/panel realizator <kanal>` — Wysyła / odświeża panel realizatora. *(Admin)*\n"
+            "`/panel klient <kanal>` — Wysyła / odświeża panel klienta. *(Admin)*"
         ),
     },
     "konfiguracja": {
@@ -1429,6 +2026,8 @@ async def pomoc_cmd(interaction: discord.Interaction):
 
 bot.tree.add_command(konfiguracja_group)
 bot.tree.add_command(regulamin_group)
+bot.tree.add_command(cennik_group)
+bot.tree.add_command(klient_group)
 bot.tree.add_command(panel_group)
 bot.tree.add_command(blacklista_group)
 bot.tree.add_command(partnerstwo_group)
@@ -1439,10 +2038,12 @@ bot.tree.add_command(konkurs_group)
 async def on_ready():
     bot.add_view(build_weryfikacja_panel())
     bot.add_view(RegulaminNawigacja(0))
+    bot.add_view(CennikGlowny())
     bot.add_view(TicketPanelWidok())
     bot.add_view(build_ticket_wiadomosc("_", "_"))
     bot.add_view(WystawOpiniePanel())
     bot.add_view(ZostanRealizatoremPanel())
+    bot.add_view(PanelKlientaGlowny())
 
     # Przywracamy trwałe widoki wszystkich niezakończonych konkursów (żeby przyciski
     # działały po restarcie bota) i doganiamy te, których czas minął w międzyczasie.
